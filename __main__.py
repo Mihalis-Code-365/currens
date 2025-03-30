@@ -11,7 +11,7 @@ def main():
         recreate_db()
         print("Database recreated.")
     else:
-        store_riksbank_rates(currency_id=2, start_date="2024-01-01")
+        store_riksbank_rates(currency_id=2, start_date="2025-01-01")
 
 
 if __name__ == "__main__":

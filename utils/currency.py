@@ -9,7 +9,7 @@ def get_currency_iso_code_by_id(currency_id: int) -> str:
     :param currency_id: Integer ID of the currency
     :return: ISO 4217 currency code (e.g. 'USD', 'EUR')
     """
-    with next(get_db_session()) as session:
+    with get_db_session() as session:
         try:
             stmt = select(Currency.iso_code).where(Currency.id == currency_id)
             iso_code = session.execute(stmt).scalar()
