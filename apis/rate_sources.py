@@ -20,7 +20,7 @@ def count_calls(func):
 
 
 def get_exchange_rates_from_riksbank(
-    currency_id: int, start_date: str, end_date: Optional[str] = None
+    rate_currency_id: int, start_date: str, end_date: Optional[str] = None
 ):
     """
     Get exchange rates from the Riksbank
@@ -30,7 +30,7 @@ def get_exchange_rates_from_riksbank(
     """
     # TODO implement end_date
     try:
-        symbol = get_currency_iso_code_by_id(currency_id)
+        symbol = get_currency_iso_code_by_id(rate_currency_id)
         symbol_map = {"EUR": "SEKEURPMI", "USD": "SEKUSDPMI"}
 
         symbol_id = symbol_map.get(symbol)
@@ -54,7 +54,7 @@ def get_exchange_rates_from_riksbank(
 
 def get_exchange_rates_from_european_central_bank(
     base_currency_id: int,
-    currency_id: int,
+    rate_currency_id: int,
     start_date: str,
     end_date: Optional[str] = None,
 ):
@@ -67,7 +67,7 @@ def get_exchange_rates_from_european_central_bank(
     :return: List of dicts with date and exchange rate value
     """
     base_currency: str = get_currency_iso_code_by_id(base_currency_id)
-    currency: str = get_currency_iso_code_by_id(currency_id)
+    currency: str = get_currency_iso_code_by_id(rate_currency_id)
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")
 
