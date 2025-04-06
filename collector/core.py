@@ -5,9 +5,9 @@ from datetime import datetime
 
 
 def init_db():
-    print("Initializing the database...")
+    print(_("Initializing the database..."))
     Base.metadata.create_all(bind=engine)
-    print("Database tables created.")
+    print(_("Database tables created."))
 
     # Pre-populate base currencies
     session = SessionLocal()
@@ -40,7 +40,17 @@ def recreate_db():
 
 
 def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None):
-    print(f"Fetching exchange rates from Riksbank for currency ID {currency_id} from {start_date} to {end_date or 'today'}...")
+    message = _(
+        "Fetching exchange rates from Riksbank for currency ID {currency_id} from {start_date} to {end_date}..."
+    )
+    print(
+        message.format(
+            currency_id=currency_id,
+            start_date=start_date,
+            end_date=end_date or _("today"),
+        )
+    )
+
     data = get_exchange_rates_from_riksbank(currency_id, start_date, end_date)
     if isinstance(data, str):
         print(f"Error fetching data: {data}")
