@@ -1,9 +1,11 @@
 import sys
 
 from collector.core import init_db, recreate_db, store_riksbank_rates
+from utils.multilanguage_support import setup_translation
 
 
 def main():
+    setup_translation("el")
     if "--init" in sys.argv:
         init_db()
         print("Database initialized.")

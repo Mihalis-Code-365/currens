@@ -1,0 +1,40 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-04-06 09:08+0200\n"
+"PO-Revision-Date: 2025-04-06 09:15+0200\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.6\n"
+
+#: collector/core.py:8
+msgid "Initializing the database..."
+msgstr "Initializing the database..."
+
+#: collector/core.py:10
+msgid "Database tables created."
+msgstr "Database tables created."
+
+#: collector/core.py:44
+#, python-brace-format
+msgid ""
+"Fetching exchange rates from Riksbank for currency ID {currency_id} from "
+"{start_date} to {end_date}..."
+msgstr ""
+"Fetching exchange rates from Riksbank for currency ID {currency_id} from "
+"{start_date} to {end_date}..."
+
+#: collector/core.py:50
+msgid "today"
+msgstr "today"
