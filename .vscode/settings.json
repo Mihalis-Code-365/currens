@@ -1,5 +1,5 @@
 {
     "python.analysis.extraPaths": [
-        "./currens"
+        "./src/currens"
     ]
 }
