@@ -20,7 +20,7 @@ def count_calls(func):
 
 
 def get_exchange_rates_from_riksbank(
-    rate_currency_id: int, start_date: str, end_date: Optional[str] = None
+    rate_currency_id: int, start_date: str, end_date: str = None
 ):
     """
     Get exchange rates from the Riksbank
@@ -56,7 +56,7 @@ def get_exchange_rates_from_european_central_bank(
     base_currency_id: int,
     rate_currency_id: int,
     start_date: str,
-    end_date: Optional[str] = None,
+    end_date: str = None,
 ):
     """
     Get exchange rates from the European Central Bank using SDMX-JSON
