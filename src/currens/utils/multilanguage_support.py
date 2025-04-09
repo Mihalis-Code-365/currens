@@ -1,9 +1,10 @@
 import gettext
 import os
+from pathlib import Path
 
 
 def setup_translation(lang_code):
-    locales_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "locales")
+    locales_dir = Path(__file__).resolve().parents[3] / "locales"
     lang = gettext.translation(
         "messages", localedir=locales_dir, languages=[lang_code], fallback=True
     )
