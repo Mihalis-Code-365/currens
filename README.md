@@ -129,5 +129,11 @@ git branch -M main
 git push -u origin main
 ```
 
+Resources
+https://github.com/MicroPyramid/forex-python/blob/master/forex_python/converter.py
+https://medium.com/@johnmillerus7/a-guide-to-building-a-historical-currency-rates-converter-step-by-step-tutorial-99000fee4581
+https://www.geeksforgeeks.org/python-get-the-real-time-currency-exchange-rate/
+https://medium.com/internet-of-technology/step-by-step-python-tutorial-creating-your-first-currency-converter-using-apis-75d86d4f190d
+https://docs.openexchangerates.org/reference/alternative-currencies
 Now your project is live on GitHub!
 
