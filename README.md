@@ -1,133 +1,84 @@
-# 💱 currens
+# currens
 
-**currens** is a modular Python package for managing exchange rate operations — including fetching, storing, and converting currency values using external APIs like the European Central Bank and Riksbank.
+`currens` is the exchange-rate service/cache used by Mihalis. It owns provider fetches, local FX caching, exact-date lookup, and bootstrap import of historical exchange-rate rows from the Mihalis backend database.
 
----
+## What It Owns
 
-## 🚀 Features
+- ECB and Riksbank exchange-rate fetching
+- local SQLite FX cache storage
+- exact-date rate lookup for `EUR`, `USD`, and `SEK`
+- period prefetch and date-specific prefetch
+- one-time bootstrap import from Mihalis historical `exchange_rates`
+- in-process Python API consumed by Mihalis
 
-- Fetch exchange rates from multiple sources
-- Store rates in a local SQL database using SQLAlchemy
-- Convert between currencies
-- Designed to be extended and modular
-- `.env` support for configuration
+## Public Service API
 
----
+- `import_mihalis_rates(source_db_path, currens_db_path=None)`
+- `ensure_rates(pairs, start_date, end_date, db_path=None)`
+- `ensure_rates_for_dates(pairs, required_dates, db_path=None)`
+- `get_rate(date, base_currency, target_currency, db_path=None)`
+- `has_rate(date, base_currency, target_currency, db_path=None)`
+- `get_rates_for_period(base_currency, target_currency, start_date, end_date, db_path=None)`
 
-## 📦 Installation
+Currencies at the API boundary use ISO codes: `EUR`, `USD`, `SEK`.
 
-1. Create and activate a virtual environment:
+## Installation
 
 ```bash
+cd currens
 uv venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
+uv sync
 ```
 
-2. Install dependencies:
+## Database
 
-```bash
-uv pip install -r requirements.txt
+By default, `currens` stores its cache in:
+
+```text
+currens/src/currens/db/exchange_rates.db
 ```
 
-Or if you're managing dependencies via `pyproject.toml`:
+When used from Mihalis, the backend points `currens` at:
 
-```bash
-uv pip install
+```text
+apps/Mihalis/backend/storage/db/currens_exchange_rates.db
 ```
 
----
+## CLI Commands
 
-## ⚙️ Configuration
-
-Create a `.env` file in the project root:
-
-```env
-DATABASE_URL=sqlite:///db/exchange_rates.db
-```
-
----
-
-## 🧱 Initialize the Database
-
-Before using the application, initialize the database schema. This will also insert the base currencies (EUR, USD, SEK) with their ISO codes:
-
-You can do this in three ways:
+Initialize the local schema:
 
 ```bash
 python -m currens --init
 ```
 
-Or run this standalone script at the project root:
-
-```bash
-python init.py
-```
-
-Or run the `__main__.py` file directly:
-
-```bash
-python currens/__main__.py --init
-```
-
-To drop and recreate all tables (useful during development):
+Drop and recreate the local schema:
 
 ```bash
 python -m currens --recreate
 ```
 
----
-
-## ▶️ Run the Application
-
-Run the main logic (example: store Riksbank exchange rates):
+Bootstrap historical FX rows from the Mihalis backend database:
 
 ```bash
-python -m currens
+python -m currens --import-mihalis-rates d:\Python\Mihalis_workspace\apps\Mihalis\backend\storage\db\trades.db
 ```
 
----
+The bootstrap import copies only `exchange_rates` rows. `currens` keeps its own canonical `currencies` table and relies on the shared ID mapping:
 
-## 📂 Project Structure
+- `1 = EUR`
+- `2 = USD`
+- `3 = SEK`
 
-```
-currens/
-├── __main__.py
-├── collector/
-│   ├── __init__.py
-│   └── core.py
-├── db/
-│   ├── models.py
-│   ├── session.py
-├── apis/
-│   └── rate_sources.py
-```
+## Notes
 
----
+- `currens` is used in-process by Mihalis; it is not an HTTP service.
+- Sweden annual reports in Mihalis prefetch only the dates actually needed by the report, not the full calendar year.
+- Exact-date lookup is still enforced for dates the report actually uses.
 
-## 🥪 Coming Soon
-
-- Unit tests
-- CLI with `typer`
-- More exchange rate providers
-- Currency conversion API
-
----
-
-## 📝 License
-
-MIT License.
-
----
-
-## 📤 Publishing to GitHub
-
-**Push your code:**
+## Testing
 
 ```bash
-git remote add origin https://github.com/your-username/currens.git
-git branch -M main
-git push -u origin main
+$env:PYTHONPATH='src'
+..\apps\Mihalis\backend\.venv\Scripts\python -m pytest tests/test_service.py -q
 ```
-
-Now your project is live on GitHub!
-

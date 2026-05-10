@@ -3,11 +3,13 @@ This module contains functions to fetch data from external APIs.
 """
 
 from datetime import datetime
+import json
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-import requests
-
-from utils.currency import get_currency_iso_code_by_id
+from currens.utils.currency import get_currency_iso_code_by_id
 
 
 def count_calls(func):
@@ -28,7 +30,6 @@ def get_exchange_rates_from_riksbank(
     :param start_date: Start date for fetching exchange rates
     :return: Exchange rate data or error message
     """
-    # TODO implement end_date
     try:
         symbol = get_currency_iso_code_by_id(rate_currency_id)
         symbol_map = {"EUR": "SEKEURPMI", "USD": "SEKUSDPMI"}
@@ -40,11 +41,8 @@ def get_exchange_rates_from_riksbank(
         url = f"https://api.riksbank.se/swea/v1/Observations/{symbol_id}/{start_date}"
         if end_date:
             url += f"/{end_date}"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()  # Raise an HTTPError for bad responses
-
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        return _load_json(url)
+    except (HTTPError, URLError) as e:
         return f"Error: Unable to fetch data. {str(e)}"
     except ValueError as e:
         return f"Error: {str(e)}"
@@ -85,12 +83,8 @@ def get_exchange_rates_from_european_central_bank(
         "format": "jsondata",
         "detail": "dataonly",
     }
-    # Request
-    response = requests.get(request_url, params=parameters, timeout=10)
-    if response.status_code != 200:
-        raise ValueError(f"Error fetching data. Status code: {response.status_code}")
-
-    data = response.json()
+    query_string = urlencode(parameters)
+    data = _load_json(f"{request_url}?{query_string}")
 
     # Navigate to the "observations" key
     observations = data["dataSets"][0]["series"]["0:0:0:0:0"]["observations"]
@@ -134,12 +128,13 @@ def get_exchange_rate_from_exchangerate(date, base_currency, target_currency):
     }
 
     # Make the request
-    response = requests.get(api_endpoint, params=params)
-
-    # Check if the request was successful
-    if response.status_code == 200:
-        data = response.json()
-        # Extract the exchange rate
+    try:
+        data = _load_json(f"{api_endpoint}?{urlencode(params)}")
         return data["result"]
-    else:
+    except (HTTPError, URLError):
         return None
+
+
+def _load_json(url: str) -> dict:
+    with urlopen(url, timeout=10) as response:
+        return json.load(response)

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Bash(grep -E \"\\\\.py$|requirements|setup|init\")",
+      "Bash(find /d/Python/Mihalis_workspace/currens -maxdepth 3 -type f -not -path */.venv/* -not -path */__pycache__/* -not -path */.git/*)",
+      "Bash(python -c \"from src.currens.collector.core import *; from src.currens.apis.rate_sources import *; print\\(''Module imports work''\\)\")"
+    ]
+  }
+}
