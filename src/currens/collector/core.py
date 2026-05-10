@@ -1,21 +1,22 @@
-from db.models import Base, Currency, ExchangeRate
-from db.session import engine, SessionLocal, get_db_session
-from apis.rate_sources import (
+from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
 from datetime import datetime
 
-from utils.currency import get_currency_iso_code_by_id
+from currens.db import session as db_session
+from currens.db.models import Base, Currency, ExchangeRate
+from currens.db.session import get_db_session
+from currens.utils.currency import get_currency_iso_code_by_id
 
 
 def init_db():
     print(_("Initializing the database..."))
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=db_session.engine)
     print(_("Database tables created."))
 
     # Pre-populate base currencies
-    session = SessionLocal()
+    session = db_session.SessionLocal()
     try:
         if not session.query(Currency).count():
             print("Pre-populating base currencies...")
@@ -39,7 +40,7 @@ def recreate_db():
     Drops and recreates all tables. Use with caution in production.
     """
     print("Dropping all tables...")
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=db_session.engine)
     print("All tables dropped.")
     init_db()
 
