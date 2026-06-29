@@ -32,11 +32,9 @@ ruff format src/
 - `src/currens/db/session.py` / `src/currens/db/models.py` — legacy SQLAlchemy support used by older collector code
 - `utils/multilanguage_support.py` — gettext-based i18n; `setup_translation(lang_code)` installs `_()` globally; locales in `locales/` (Greek `el`, English `en`)
 
-**Database contract:** `currens` owns its own SQLite cache and canonical `currencies` rows. Historical Mihalis `exchange_rates` can be imported because both projects use the same currency ID mapping:
-
-- `1 = EUR`
-- `2 = USD`
-- `3 = SEK`
+**Database contract:** `currens` owns its own SQLite cache and canonical `currencies` rows. Historical Mihalis `exchange_rates` can be imported via `import_mihalis_rates`. The importer supports both schema versions:
+- **New schema (portfolio.db v3+):** `base_currency TEXT`, `target_currency TEXT` — ISO codes imported via `_currency_id_from_code`
+- **Old schema (trades.db):** `base_currency_id INT`, `target_currency_id INT` — mapping: `1=EUR`, `2=USD`, `3=SEK`
 
 **Behavioral notes:**
 

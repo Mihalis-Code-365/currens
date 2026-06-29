@@ -52,16 +52,38 @@ def import_mihalis_rates(
     imported_count = 0
     with sqlite3.connect(Path(source_db_path).expanduser().resolve()) as source_connection:
         source_connection.row_factory = sqlite3.Row
-        rows = source_connection.execute(
-            """
-            SELECT source, exchange_rate_date, base_currency_id, target_currency_id, value
-            FROM exchange_rates
-            ORDER BY exchange_rate_date ASC
-            """
-        ).fetchall()
+        col_names = {
+            row[0]
+            for row in source_connection.execute(
+                "SELECT name FROM pragma_table_info('exchange_rates')"
+            ).fetchall()
+        }
+        use_text_codes = "base_currency" in col_names
+        if use_text_codes:
+            rows = source_connection.execute(
+                """
+                SELECT source, exchange_rate_date, base_currency, target_currency, value
+                FROM exchange_rates
+                ORDER BY exchange_rate_date ASC
+                """
+            ).fetchall()
+        else:
+            rows = source_connection.execute(
+                """
+                SELECT source, exchange_rate_date, base_currency_id, target_currency_id, value
+                FROM exchange_rates
+                ORDER BY exchange_rate_date ASC
+                """
+            ).fetchall()
 
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:
+            if use_text_codes:
+                base_id = _currency_id_from_code(str(row["base_currency"]))
+                target_id = _currency_id_from_code(str(row["target_currency"]))
+            else:
+                base_id = int(row["base_currency_id"])
+                target_id = int(row["target_currency_id"])
             connection.execute(
                 """
                 INSERT OR REPLACE INTO exchange_rates (
@@ -75,8 +97,8 @@ def import_mihalis_rates(
                 (
                     str(row["source"] or "legacy"),
                     _coerce_date(row["exchange_rate_date"]).isoformat(),
-                    int(row["base_currency_id"]),
-                    int(row["target_currency_id"]),
+                    base_id,
+                    target_id,
                     float(row["value"]),
                 ),
             )
