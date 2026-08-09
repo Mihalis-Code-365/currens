@@ -58,23 +58,29 @@ def import_mihalis_rates(
                 "SELECT name FROM pragma_table_info('exchange_rates')"
             ).fetchall()
         }
+        # Mihalis' v3 schema renamed three things at once: the currency columns became TEXT codes,
+        # `exchange_rate_date` became `rate_date`, and `value` became `rate`. Each is sniffed on
+        # its own rather than inferred from the currency columns -- assuming one rename implied
+        # the others is what made this function unable to read the very schema it was extended
+        # for, since it selected the new currency columns alongside the old date/value ones.
         use_text_codes = "base_currency" in col_names
-        if use_text_codes:
-            rows = source_connection.execute(
-                """
-                SELECT source, exchange_rate_date, base_currency, target_currency, value
-                FROM exchange_rates
-                ORDER BY exchange_rate_date ASC
-                """
-            ).fetchall()
-        else:
-            rows = source_connection.execute(
-                """
-                SELECT source, exchange_rate_date, base_currency_id, target_currency_id, value
-                FROM exchange_rates
-                ORDER BY exchange_rate_date ASC
-                """
-            ).fetchall()
+        date_column = "rate_date" if "rate_date" in col_names else "exchange_rate_date"
+        value_column = "rate" if "rate" in col_names else "value"
+        currency_columns = (
+            "base_currency, target_currency" if use_text_codes
+            else "base_currency_id, target_currency_id"
+        )
+        # Aliased back to the legacy names so everything downstream reads one set of keys.
+        rows = source_connection.execute(
+            f"""
+            SELECT source,
+                   {date_column} AS exchange_rate_date,
+                   {currency_columns},
+                   {value_column} AS value
+            FROM exchange_rates
+            ORDER BY {date_column} ASC
+            """
+        ).fetchall()
 
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:

@@ -80,3 +80,58 @@ def test_import_mihalis_rates_deduplicates_on_currens_primary_key(tmp_path) -> N
         connection.close()
 
     assert count == 2
+
+
+def _create_portfolio_v3_source_db(path: Path) -> None:
+    """Mihalis' v3 `portfolio.db` layout: TEXT currency codes, and `rate_date`/`rate` where the
+    legacy schema had `exchange_rate_date`/`value`. Mirrors that project's migrations/schema.sql.
+
+    The TEXT-code support added in f379c68 had no fixture of its own, so nothing noticed that it
+    still selected the legacy date and value column names and could not read a v3 database at all.
+    """
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE currencies (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+        );
+        CREATE TABLE exchange_rates (
+            source TEXT NOT NULL,
+            rate_date TEXT NOT NULL,
+            base_currency TEXT NOT NULL,
+            target_currency TEXT NOT NULL,
+            rate REAL NOT NULL,
+            PRIMARY KEY (rate_date, base_currency, target_currency)
+        );
+        """
+    )
+    connection.executemany(
+        "INSERT INTO currencies (code, name) VALUES (?, ?)",
+        [("EUR", "Euro"), ("USD", "United States Dollar"), ("SEK", "Swedish Krona")],
+    )
+    connection.executemany(
+        """
+        INSERT INTO exchange_rates (source, rate_date, base_currency, target_currency, rate)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            ("EuropeanCentralBank", "2025-06-02", "EUR", "SEK", 11.10),
+            ("EuropeanCentralBank", "2025-06-02", "EUR", "USD", 1.14),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+
+def test_import_mihalis_rates_reads_portfolio_v3_schema(tmp_path) -> None:
+    source_db = tmp_path / "portfolio.db"
+    currens_db = tmp_path / "currens.db"
+    _create_portfolio_v3_source_db(source_db)
+
+    configure_service_database(currens_db)
+    imported = import_mihalis_rates(source_db, currens_db_path=currens_db)
+
+    assert imported == 2
+    assert get_rate(date(2025, 6, 2), "EUR", "SEK", db_path=currens_db) == Decimal("11.1")
+    assert get_rate(date(2025, 6, 2), "EUR", "USD", db_path=currens_db) == Decimal("1.14")
