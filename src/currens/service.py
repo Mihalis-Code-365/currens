@@ -22,6 +22,7 @@ DEFAULT_CURRENCIES = (
     (3, "SEK", "SEK"),
 )
 EUR_CURRENCY_ID = 1
+USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
@@ -301,7 +302,35 @@ def _ensure_schema(db_path: Path) -> None:
             """,
             DEFAULT_CURRENCIES,
         )
+        _migrate(connection)
         connection.commit()
+
+
+def _migrate(connection: sqlite3.Connection) -> None:
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        # Drop Riksbank rows that are provably wrong; the cache refetches them on demand.
+        # Rows imported from Mihalis are correct and are kept.
+        # - Before v1 the service fetched USD<->SEK inverted (issue #10). USD/SEK has never
+        #   been near 1, so USD->SEK below 1 or SEK->USD above 1 is an inverted row.
+        # - The legacy collector stored Riksbank series without SEK in the pair (as EUR->USD).
+        connection.execute(
+            """
+            DELETE FROM exchange_rates
+            WHERE lower(source) = 'riksbank'
+              AND (
+                    ? NOT IN (base_currency_id, target_currency_id)
+                 OR (base_currency_id = ? AND target_currency_id = ? AND value < 1)
+                 OR (base_currency_id = ? AND target_currency_id = ? AND value > 1)
+              )
+            """,
+            (
+                SEK_CURRENCY_ID,
+                USD_CURRENCY_ID, SEK_CURRENCY_ID,
+                SEK_CURRENCY_ID, USD_CURRENCY_ID,
+            ),
+        )
+        connection.execute("PRAGMA user_version = 1")
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -491,12 +520,14 @@ def _fetch_from_riksbank(
     start_date: date,
     end_date: date,
 ) -> list[ExchangeRateRecord]:
+    # Riksbank series (e.g. SEKUSDPMI) quote SEK per 1 unit of the foreign currency,
+    # so they are already X->SEK and only SEK->X needs the reciprocal.
     if base_currency_id == SEK_CURRENCY_ID:
         rate_currency_id = target_currency_id
-        is_reversed = False
+        is_reversed = True
     elif target_currency_id == SEK_CURRENCY_ID:
         rate_currency_id = base_currency_id
-        is_reversed = True
+        is_reversed = False
     else:
         raise ValueError("Riksbank fetch requires SEK as base or target currency.")
 

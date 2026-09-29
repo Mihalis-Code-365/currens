@@ -113,7 +113,12 @@ def test_ecb_normal_path_returns_rate(monkeypatch, tmp_path) -> None:
     assert get_rate(CONTROL, *ECB_PAIR, db_path=tmp_path / "currens.db") == Decimal("0.8")
 
 
-def test_riksbank_normal_path_returns_rate(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("pair", "expected"),
+    [(("USD", "SEK"), Decimal("10")), (("SEK", "USD"), Decimal("0.1"))],
+)
+def test_riksbank_normal_path_returns_rate(monkeypatch, tmp_path, pair, expected) -> None:
+    # Riksbank SEKUSDPMI quotes SEK per 1 USD, so USD->SEK is the value as published.
     _respond(monkeypatch, body=_riksbank_body(CONTROL, 10.0))
 
-    assert isinstance(get_rate(CONTROL, *RIKSBANK_PAIR, db_path=tmp_path / "currens.db"), Decimal)
+    assert get_rate(CONTROL, *pair, db_path=tmp_path / "currens.db") == expected
