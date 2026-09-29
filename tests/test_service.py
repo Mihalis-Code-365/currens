@@ -135,3 +135,72 @@ def test_import_mihalis_rates_reads_portfolio_v3_schema(tmp_path) -> None:
     assert imported == 2
     assert get_rate(date(2025, 6, 2), "EUR", "SEK", db_path=currens_db) == Decimal("11.1")
     assert get_rate(date(2025, 6, 2), "EUR", "USD", db_path=currens_db) == Decimal("1.14")
+
+
+def test_schema_migration_drops_only_wrong_riksbank_rows(tmp_path) -> None:
+    currens_db = tmp_path / "currens.db"
+    configure_service_database(currens_db)
+    connection = sqlite3.connect(currens_db)
+    try:
+        # Simulate a pre-v1 cache.
+        connection.execute("PRAGMA user_version = 0")
+        connection.executemany(
+            "INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)",
+            [
+                # Inverted by the pre-v1 service fetch (issue #10).
+                ("Riksbank", "2025-06-02", 2, 3, 0.1),
+                ("Riksbank", "2025-06-03", 3, 2, 9.8),
+                # Legacy collector: Riksbank series stored without SEK in the pair.
+                ("riksbank", "2025-06-02", 1, 2, 9.7),
+                # Correct rows, e.g. imported from Mihalis.
+                ("Riksbank", "2025-06-04", 3, 2, 0.1),
+                ("Riksbank", "2025-06-04", 1, 3, 11.0),
+                ("EuropeanCentralBank", "2025-06-02", 1, 3, 11.1),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    configure_service_database(currens_db)
+
+    connection = sqlite3.connect(currens_db)
+    try:
+        remaining = connection.execute(
+            "SELECT exchange_rate_date, base_currency_id, target_currency_id FROM exchange_rates"
+            " ORDER BY 1, 2, 3"
+        ).fetchall()
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        connection.close()
+    assert remaining == [("2025-06-02", 1, 3), ("2025-06-04", 1, 3), ("2025-06-04", 3, 2)]
+    assert version == 1
+    assert get_rate(date(2025, 6, 4), "USD", "SEK", db_path=currens_db) == Decimal("10")
+
+
+def test_import_mihalis_rates_drops_invalid_riksbank_rows(tmp_path) -> None:
+    # An older Mihalis database may carry rows written by the buggy Riksbank code; the
+    # one-time migration has already run by the time they are imported.
+    source_db = tmp_path / "mihalis.db"
+    currens_db = tmp_path / "currens.db"
+    _create_mihalis_source_db(source_db)
+    connection = sqlite3.connect(source_db)
+    connection.executemany(
+        """
+        INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id, target_currency_id, value)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            ("riksbank", "2025-06-03", 1, 2, 9.7),
+            ("Riksbank", "2025-06-03", 2, 3, 0.1),
+            ("Riksbank", "2025-06-04", 3, 2, 0.1),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    import_mihalis_rates(source_db, currens_db_path=currens_db)
+
+    assert has_rate(date(2025, 6, 3), "EUR", "USD", db_path=currens_db) is False
+    assert has_rate(date(2025, 6, 3), "USD", "SEK", db_path=currens_db) is False
+    assert get_rate(date(2025, 6, 4), "USD", "SEK", db_path=currens_db) == Decimal("10")
