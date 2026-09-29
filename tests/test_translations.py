@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import ast
 import gettext
-import re
 import string
 from pathlib import Path
 
@@ -9,14 +9,21 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCALES_DIR = ROOT / "locales"
-# `_("...")` calls with a single string literal, possibly spanning lines.
-_CALL = re.compile(r'\b_\(\s*"((?:[^"\\]|\\.)*)"\s*\)')
-
-
 def _source_msgids() -> set[str]:
+    # Parse rather than regex-match, so any quoting style and implicitly concatenated
+    # literals are found, matching what pybabel extracts.
     msgids: set[str] = set()
     for path in (ROOT / "src").rglob("*.py"):
-        msgids.update(_CALL.findall(path.read_text(encoding="utf-8")))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                msgids.add(node.args[0].value)
     return msgids
 
 
