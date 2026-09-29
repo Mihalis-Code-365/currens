@@ -7,6 +7,7 @@ from datetime import datetime
 from currens.db import session as db_session
 from currens.db.models import Base, Currency, ExchangeRate
 from currens.db.session import get_db_session
+from currens.errors import RateProviderUnavailableError
 from currens.utils.currency import get_currency_iso_code_by_id
 
 
@@ -58,9 +59,10 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
         )
     )
 
-    data = get_exchange_rates_from_riksbank(currency_id, start_date, end_date)
-    if isinstance(data, str):
-        print(f"Error fetching data: {data}")
+    try:
+        data = get_exchange_rates_from_riksbank(currency_id, start_date, end_date)
+    except (RateProviderUnavailableError, ValueError) as e:
+        print(f"Error fetching data: {e}")
         return
 
     print(f"Fetched {len(data)} records. Storing them in the database...")
@@ -87,11 +89,12 @@ def store_european_central_bank_rates(
 
     print(message)
 
-    data = get_exchange_rates_from_european_central_bank(
-        base_currency_id, rate_currency_id, start_date, end_date
-    )
-    if isinstance(data, str):
-        print(f"Error fetching data: {data}")
+    try:
+        data = get_exchange_rates_from_european_central_bank(
+            base_currency_id, rate_currency_id, start_date, end_date
+        )
+    except (RateProviderUnavailableError, ValueError) as e:
+        print(f"Error fetching data: {e}")
         return
 
     print(f"Fetched {len(data)} records. Storing them in the database...")

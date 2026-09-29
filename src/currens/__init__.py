@@ -1,3 +1,4 @@
+from currens.errors import RateNotPublishedError, RateProviderUnavailableError
 from currens.service import (
     ensure_rates,
     ensure_rates_for_dates,
@@ -8,6 +9,8 @@ from currens.service import (
 )
 
 __all__ = [
+    "RateNotPublishedError",
+    "RateProviderUnavailableError",
     "ensure_rates",
     "ensure_rates_for_dates",
     "get_rate",
