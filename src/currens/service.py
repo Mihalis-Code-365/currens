@@ -111,6 +111,7 @@ def import_mihalis_rates(
                 ),
             )
             imported_count += 1
+        _delete_invalid_riksbank_rows(connection)
         connection.commit()
     return imported_count
 
@@ -309,28 +310,36 @@ def _ensure_schema(db_path: Path) -> None:
 def _migrate(connection: sqlite3.Connection) -> None:
     version = connection.execute("PRAGMA user_version").fetchone()[0]
     if version < 1:
-        # Drop Riksbank rows that are provably wrong; the cache refetches them on demand.
-        # Rows imported from Mihalis are correct and are kept.
-        # - Before v1 the service fetched USD<->SEK inverted (issue #10). USD/SEK has never
-        #   been near 1, so USD->SEK below 1 or SEK->USD above 1 is an inverted row.
-        # - The legacy collector stored Riksbank series without SEK in the pair (as EUR->USD).
-        connection.execute(
-            """
-            DELETE FROM exchange_rates
-            WHERE lower(source) = 'riksbank'
-              AND (
-                    ? NOT IN (base_currency_id, target_currency_id)
-                 OR (base_currency_id = ? AND target_currency_id = ? AND value < 1)
-                 OR (base_currency_id = ? AND target_currency_id = ? AND value > 1)
-              )
-            """,
-            (
-                SEK_CURRENCY_ID,
-                USD_CURRENCY_ID, SEK_CURRENCY_ID,
-                SEK_CURRENCY_ID, USD_CURRENCY_ID,
-            ),
-        )
+        _delete_invalid_riksbank_rows(connection)
         connection.execute("PRAGMA user_version = 1")
+
+
+def _delete_invalid_riksbank_rows(connection: sqlite3.Connection) -> None:
+    """Drop Riksbank rows that are provably wrong; the cache refetches them on demand.
+
+    - Before v1 the service fetched USD<->SEK inverted (issue #10). USD/SEK has never
+      been near 1, so USD->SEK below 1 or SEK->USD above 1 is an inverted row.
+    - The legacy collector stored Riksbank series without SEK in the pair (as EUR->USD).
+
+    Runs once as a migration and again after every Mihalis import, since an older
+    Mihalis database may carry rows written by the same buggy code.
+    """
+    connection.execute(
+        """
+        DELETE FROM exchange_rates
+        WHERE lower(source) = 'riksbank'
+          AND (
+                ? NOT IN (base_currency_id, target_currency_id)
+             OR (base_currency_id = ? AND target_currency_id = ? AND value < 1)
+             OR (base_currency_id = ? AND target_currency_id = ? AND value > 1)
+          )
+        """,
+        (
+            SEK_CURRENCY_ID,
+            USD_CURRENCY_ID, SEK_CURRENCY_ID,
+            SEK_CURRENCY_ID, USD_CURRENCY_ID,
+        ),
+    )
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:

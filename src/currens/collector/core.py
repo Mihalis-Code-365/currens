@@ -8,6 +8,7 @@ from currens.db import session as db_session
 from currens.db.models import Base, Currency, ExchangeRate
 from currens.db.session import get_db_session
 from currens.errors import RateProviderUnavailableError
+from currens.service import SEK_CURRENCY_ID
 from currens.utils.currency import get_currency_iso_code_by_id
 
 
@@ -54,6 +55,7 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
     print(
         message.format(
             currency_id=currency_id,
+            currency_iso_code=currency_iso_code,
             start_date=start_date,
             end_date=end_date or _("today"),
         )
@@ -71,8 +73,9 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
             rate = ExchangeRate(
                 source="Riksbank",
                 exchange_rate_date=datetime.strptime(record["date"], "%Y-%m-%d").date(),
-                base_currency_id=1,  # set appropriately
-                target_currency_id=currency_id,
+                # Riksbank series quote SEK per 1 unit of the foreign currency.
+                base_currency_id=currency_id,
+                target_currency_id=SEK_CURRENCY_ID,
                 value=float(record["value"]),
             )
             session.merge(rate)
