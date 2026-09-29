@@ -1,40 +1,41 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# Copyright (C) 2025 THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the PACKAGE package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
 #
-#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: \n"
+"Project-Id-Version: currens 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-04-06 09:08+0200\n"
-"PO-Revision-Date: 2025-04-06 09:17+0200\n"
+"POT-Creation-Date: 2026-09-29 17:33+0200\n"
+"PO-Revision-Date: 2026-09-29 17:40+0200\n"
 "Last-Translator: \n"
-"Language-Team: \n"
 "Language: el\n"
+"Language-Team: \n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: Poedit 3.6\n"
+"Generated-By: Babel 2.17.0\n"
 
-#: collector/core.py:8
+#: src/currens/collector/core.py:16
 msgid "Initializing the database..."
-msgstr "Αρχικοποίηση της βάσης δεδομένων.."
+msgstr "Αρχικοποίηση της βάσης δεδομένων..."
 
-#: collector/core.py:10
+#: src/currens/collector/core.py:18
 msgid "Database tables created."
 msgstr "Οι πίνακες της βάσης δεδομένων δημιουργήθηκαν."
 
-#: collector/core.py:44
+#: src/currens/collector/core.py:53
 #, python-brace-format
 msgid ""
-"Fetching exchange rates from Riksbank for currency ID {currency_id} from "
-"{start_date} to {end_date}..."
+"Fetching exchange rates from Riksbank for currency {currency_iso_code} "
+"from {start_date} to {end_date}..."
 msgstr ""
-"Ανάκτηση συναλλαγματικών ισοτιμιών από τη Riksbank για αναγνωριστικό "
-"νομίσματος {currency_id} από {start_date} έως {end_date}..."
+"Ανάκτηση συναλλαγματικών ισοτιμιών από τη Riksbank για το νόμισμα "
+"{currency_iso_code} από {start_date} έως {end_date}..."
 
-#: collector/core.py:50
+#: src/currens/collector/core.py:60
 msgid "today"
 msgstr "σήμερα"
+
