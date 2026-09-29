@@ -12,6 +12,7 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
+from currens.errors import RateNotPublishedError
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
@@ -177,7 +178,7 @@ def ensure_rates_for_dates(
         ]
         if unresolved_dates:
             missing_labels = ", ".join(value.isoformat() for value in unresolved_dates[:5])
-            raise ValueError(
+            raise RateNotPublishedError(
                 "Exchange rate provider did not return exact-date coverage for "
                 f"{base_currency}->{target_currency}. Missing dates include: {missing_labels}"
             )
@@ -224,7 +225,7 @@ def get_rate(
     )
     rate = _lookup_rate(base_currency_id, target_currency_id, calculation_date)
     if rate is None:
-        raise ValueError(
+        raise RateNotPublishedError(
             f"Exchange rate not found for {base_currency} to {target_currency} on {calculation_date.isoformat()}"
         )
     return rate
@@ -450,7 +451,7 @@ def _fetch_pair_from_provider(
     missing = sorted(expected_dates - fetched_dates)
     if missing:
         missing_labels = ", ".join(value.isoformat() for value in missing[:5])
-        raise ValueError(
+        raise RateNotPublishedError(
             "Exchange rate provider did not return exact-date coverage for "
             f"{_code_from_id(base_currency_id)}->{_code_from_id(target_currency_id)}. "
             f"Missing dates include: {missing_labels}"
@@ -521,9 +522,6 @@ def _normalize_provider_rows(
     target_currency_id: int,
     reverse_value: bool,
 ) -> list[ExchangeRateRecord]:
-    if isinstance(rows, str):
-        raise ValueError(rows)
-
     normalized_rows: list[tuple[date, Decimal]] = []
     if isinstance(rows, dict) and "data" in rows:
         for item in rows["data"]:
