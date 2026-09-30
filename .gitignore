@@ -54,6 +54,9 @@ cover/
 # Translations
 *.mo
 *.pot
+# ...but keep this project's catalogs: gettext reads the compiled .mo at runtime.
+!locales/messages.pot
+!locales/*/LC_MESSAGES/messages.mo
 
 # Django stuff:
 *.log

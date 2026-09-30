@@ -16,6 +16,13 @@ python -m currens --import-mihalis-rates <path-to-trades.db>
 # Tests (pytest is in the `dev` dependency group, installed by `uv sync`)
 PYTHONPATH=src uv run pytest tests/test_service.py -q
 
+# Translations: after adding/changing a _("...") message, refresh the catalogs,
+# fill in the new msgstr entries (el, en), then recompile. tests/test_translations.py
+# fails if a compiled catalog is missing a source message.
+pybabel extract --project=currens --version=0.1.0 -o locales/messages.pot src/currens
+pybabel update -i locales/messages.pot -d locales -D messages --no-fuzzy-matching --ignore-obsolete
+pybabel compile -d locales -D messages --statistics
+
 # Lint & format (ruff is the configured tool)
 uv run ruff check src/
 uv run ruff format src/

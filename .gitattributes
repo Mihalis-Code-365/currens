@@ -4,3 +4,4 @@
 # Binary assets
 *.png binary
 *.db binary
+*.mo binary
