@@ -12,7 +12,7 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
-from currens.errors import RateNotPublishedError
+from currens.errors import RateNotPublishedError, RateProviderUnavailableError
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
@@ -565,25 +565,40 @@ def _normalize_provider_rows(
     normalized_rows: list[tuple[date, Decimal]] = []
     if isinstance(rows, dict) and "data" in rows:
         for item in rows["data"]:
-            item_date = _coerce_date(item.get("date"))
-            value = item.get("value")
-            if value is None:
-                continue
-            normalized_rows.append((item_date, Decimal(str(value))))
+            try:
+                item_date = _coerce_date(item.get("date"))
+                value = item.get("value")
+                if value is None:
+                    continue
+                normalized_rows.append((item_date, Decimal(str(value))))
+            except (ValueError, ArithmeticError, AttributeError, TypeError) as exc:
+                raise RateProviderUnavailableError(
+                    f"Unparseable {source} row: {item!r}"
+                ) from exc
     else:
         for item in rows:
-            item_date = _coerce_date(item.get("date"))
-            value = item.get("value")
-            if value is None:
-                continue
-            numeric = float(value)
-            if math.isnan(numeric):
-                continue
-            normalized_rows.append((item_date, Decimal(str(value))))
+            try:
+                item_date = _coerce_date(item.get("date"))
+                value = item.get("value")
+                if value is None:
+                    continue
+                numeric = float(value)
+                if math.isnan(numeric):
+                    continue
+                normalized_rows.append((item_date, Decimal(str(value))))
+            except (ValueError, ArithmeticError, AttributeError, TypeError) as exc:
+                raise RateProviderUnavailableError(
+                    f"Unparseable {source} row: {item!r}"
+                ) from exc
 
     records: list[ExchangeRateRecord] = []
     for item_date, value in normalized_rows:
-        rate_value = Decimal("1") / value if reverse_value else value
+        try:
+            rate_value = Decimal("1") / value if reverse_value else value
+        except (ArithmeticError, TypeError) as exc:
+            raise RateProviderUnavailableError(
+                f"Unparseable {source} row: ({item_date!r}, {value!r})"
+            ) from exc
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=item_date,
