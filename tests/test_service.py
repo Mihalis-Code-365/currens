@@ -145,7 +145,8 @@ def test_schema_migration_drops_only_wrong_riksbank_rows(tmp_path) -> None:
         # Simulate a pre-v1 cache.
         connection.execute("PRAGMA user_version = 0")
         connection.executemany(
-            "INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
+            " target_currency_id, value) VALUES (?, ?, ?, ?, ?)",
             [
                 # Inverted by the pre-v1 service fetch (issue #10).
                 ("Riksbank", "2025-06-02", 2, 3, 0.1),
@@ -174,7 +175,7 @@ def test_schema_migration_drops_only_wrong_riksbank_rows(tmp_path) -> None:
     finally:
         connection.close()
     assert remaining == [("2025-06-02", 1, 3), ("2025-06-04", 1, 3), ("2025-06-04", 3, 2)]
-    assert version == 1
+    assert version == 2
     assert get_rate(date(2025, 6, 4), "USD", "SEK", db_path=currens_db) == Decimal("10")
 
 
