@@ -44,3 +44,32 @@ def test_compiled_catalog_covers_every_source_message(lang) -> None:
         assert msgid in catalog._catalog, f"{lang}: missing translation for {msgid!r}"
         translated = catalog.gettext(msgid)
         assert _placeholders(translated) == _placeholders(msgid), f"{lang}: {msgid!r}"
+
+
+def test_collector_works_without_setup_translation() -> None:
+    # Before #3 the collector used a builtin `_` that only the CLI installed.
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", "from currens.collector import core; print(core._('today'))"],
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": str(ROOT / "src"), "PATH": ""},
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "today"
+
+
+def test_setup_translation_switches_collector_messages_to_greek(capsys) -> None:
+    from currens.collector import core
+    from currens.utils.multilanguage_support import setup_translation
+
+    try:
+        setup_translation("el")
+        print(core._("Error fetching data: {error}").format(error="x"))
+    finally:
+        setup_translation("en")
+
+    assert capsys.readouterr().out.strip() == "Σφάλμα κατά την ανάκτηση δεδομένων: x"

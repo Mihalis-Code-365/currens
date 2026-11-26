@@ -16,6 +16,7 @@ from currens.service import (
     _normalize_provider_rows,
 )
 from currens.utils.currency import CURRENCIES, get_currency_iso_code_by_id
+from currens.utils.multilanguage_support import _
 
 
 def _ensure_cache_schema() -> None:
@@ -46,27 +47,31 @@ def init_db():
             row for row in CURRENCIES if row[0] not in existing_ids and row[1] not in existing_codes
         ]
         if missing:
-            print("Pre-populating base currencies...")
+            print(_("Pre-populating base currencies..."))
             session.add_all(
                 Currency(id=currency_id, name=name, iso_code=iso_code)
                 for currency_id, iso_code, name in missing
             )
             session.commit()
-            print("Inserted base currencies: " + ", ".join(row[1] for row in missing))
+            print(
+                _("Inserted base currencies: {codes}").format(
+                    codes=", ".join(row[1] for row in missing)
+                )
+            )
         else:
-            print("Base currencies already exist. Skipping pre-population.")
+            print(_("Base currencies already exist. Skipping pre-population."))
     finally:
         session.close()
-        print("Database initialization complete.")
+        print(_("Database initialization complete."))
 
 
 def recreate_db():
     """
     Drops and recreates all tables. Use with caution in production.
     """
-    print("Dropping all tables...")
+    print(_("Dropping all tables..."))
     Base.metadata.drop_all(bind=db_session.engine)
-    print("All tables dropped.")
+    print(_("All tables dropped."))
     init_db()
 
 
@@ -77,7 +82,6 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
     )
     print(
         message.format(
-            currency_id=currency_id,
             currency_iso_code=currency_iso_code,
             start_date=start_date,
             end_date=end_date or _("today"),
@@ -96,11 +100,15 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
             series_id=f"SEK{currency_iso_code}PMI",
         )
     except (RateProviderUnavailableError, ValueError) as e:
-        print(f"Error fetching data: {e}")
+        print(_("Error fetching data: {error}").format(error=e))
         return
 
     _store_records(records)
-    print(f"Successfully stored exchange rates for currency {currency_iso_code}.")
+    print(
+        _("Successfully stored exchange rates for currency {currency_iso_code}.").format(
+            currency_iso_code=currency_iso_code
+        )
+    )
 
 
 def store_european_central_bank_rates(
@@ -133,17 +141,24 @@ def store_european_central_bank_rates(
             series_id=f"EXR/D.{rate_currency_iso_code}.{base_currency_iso_code}.SP00.A",
         )
     except (RateProviderUnavailableError, ValueError) as e:
-        print(f"Error fetching data: {e}")
+        print(_("Error fetching data: {error}").format(error=e))
         return
 
     _store_records(records)
     print(
-        f"Successfully stored exchange rates for base currency {base_currency_iso_code} and rate currency {rate_currency_iso_code}."
+        _(
+            "Successfully stored exchange rates for base currency {base_currency_iso_code} and rate currency {rate_currency_iso_code}."
+        ).format(
+            base_currency_iso_code=base_currency_iso_code,
+            rate_currency_iso_code=rate_currency_iso_code,
+        )
     )
 
 
 def _store_records(records: list[ExchangeRateRecord]) -> None:
-    print(f"Fetched {len(records)} records. Storing them in the database...")
+    print(
+        _("Fetched {count} records. Storing them in the database...").format(count=len(records))
+    )
     _ensure_cache_schema()
     with get_db_session() as session:
         for record in records:

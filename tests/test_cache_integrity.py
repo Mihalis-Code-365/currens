@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 import json
 import logging
 import sqlite3
@@ -204,7 +203,6 @@ def test_bad_cached_rate_does_not_count_as_coverage(monkeypatch, tmp_path) -> No
 def collector_db(monkeypatch, tmp_path):
     currens_db = tmp_path / "currens.db"
     db_session.configure_database(db_path=currens_db)
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     Base.metadata.create_all(bind=db_session.engine)
     yield currens_db
     db_session.configure_database()

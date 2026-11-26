@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 from datetime import date
 from decimal import Decimal
 
@@ -13,7 +12,6 @@ from currens.service import get_rate, get_rate_record, has_rate
 def test_store_riksbank_rates_stores_foreign_to_sek(monkeypatch, tmp_path) -> None:
     currens_db = tmp_path / "currens.db"
     db_session.configure_database(db_path=currens_db)
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     try:
         Base.metadata.create_all(bind=db_session.engine)
         # Riksbank SEKUSDPMI quotes SEK per 1 USD.
@@ -34,7 +32,6 @@ def test_store_riksbank_rates_stores_foreign_to_sek(monkeypatch, tmp_path) -> No
 def test_store_european_central_bank_rates_stores_eur_to_target(monkeypatch, tmp_path, capsys) -> None:
     currens_db = tmp_path / "currens.db"
     db_session.configure_database(db_path=currens_db)
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     try:
         Base.metadata.create_all(bind=db_session.engine)
         # EXR/D.USD.EUR.SP00.A quotes USD per 1 EUR.
@@ -63,7 +60,6 @@ def test_store_european_central_bank_rates_stores_eur_to_target(monkeypatch, tmp
 def test_store_european_central_bank_rates_without_end_date_says_today(monkeypatch, tmp_path, capsys) -> None:
     currens_db = tmp_path / "currens.db"
     db_session.configure_database(db_path=currens_db)
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     try:
         Base.metadata.create_all(bind=db_session.engine)
         monkeypatch.setattr(
@@ -84,7 +80,6 @@ def test_init_db_adds_missing_currencies_to_a_seeded_database(monkeypatch, tmp_p
     from currens.utils.currency import CURRENCIES
 
     db_session.configure_database(db_path=tmp_path / "collector.db")
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     try:
         Base.metadata.create_all(bind=db_session.engine)
         with db_session.get_db_session() as session:
@@ -124,7 +119,6 @@ def test_collector_writes_to_a_cache_made_before_provenance(monkeypatch, tmp_pat
             """
         )
     db_session.configure_database(db_path=currens_db)
-    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
     monkeypatch.setattr(
         core,
         "get_exchange_rates_from_riksbank",

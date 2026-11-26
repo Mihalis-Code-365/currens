@@ -1,16 +1,26 @@
+"""gettext-based messages for the CLI and the legacy collector (#3).
+
+Modules import `_` from here rather than relying on a builtin: until `setup_translation`
+runs, `_` returns the English message, so importing the collector as a library no longer
+fails with `NameError: _`.
+"""
+
 import gettext
 from pathlib import Path
 
+_translation: gettext.NullTranslations = gettext.NullTranslations()
 
-def setup_translation(lang_code):
+
+def setup_translation(lang_code: str) -> None:
+    """Switch messages to `lang_code` ("el" for Greek, "en" for English)."""
+    global _translation
     locales_dir = Path(__file__).resolve().parents[3] / "locales"
-    lang = gettext.translation(
+    _translation = gettext.translation(
         "messages", localedir=locales_dir, languages=[lang_code], fallback=True
     )
-    lang.install()
-    # Now _() is globally available
+    # Still installed as the builtin `_`, for any caller that relied on it.
+    _translation.install()
 
 
-# 🧪 Choose language: "el" for Greek, "en" for English
-# setup_translation("el")  # Change to "en" to switch language
-# setup_translation("en")  # Change to "en" to switch language
+def _(message: str) -> str:
+    return _translation.gettext(message)
