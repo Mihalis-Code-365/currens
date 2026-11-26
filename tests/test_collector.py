@@ -29,3 +29,30 @@ def test_store_riksbank_rates_stores_foreign_to_sek(monkeypatch, tmp_path) -> No
 
     assert get_rate(date(2025, 4, 16), "USD", "SEK", db_path=currens_db) == Decimal("10")
     assert has_rate(date(2025, 4, 16), "EUR", "USD", db_path=currens_db) is False
+
+
+def test_store_european_central_bank_rates_stores_eur_to_target(monkeypatch, tmp_path, capsys) -> None:
+    currens_db = tmp_path / "currens.db"
+    db_session.configure_database(db_path=currens_db)
+    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
+    try:
+        Base.metadata.create_all(bind=db_session.engine)
+        # EXR/D.USD.EUR.SP00.A quotes USD per 1 EUR.
+        monkeypatch.setattr(
+            core,
+            "get_exchange_rates_from_european_central_bank",
+            lambda base_currency_id, rate_currency_id, start_date, end_date=None: [
+                {"date": "2025-04-14", "value": 1.1377}
+            ],
+        )
+
+        core.store_european_central_bank_rates(
+            base_currency_id=1, rate_currency_id=2, start_date="2025-04-14", end_date="2025-04-14"
+        )
+    finally:
+        db_session.configure_database()
+
+    assert get_rate(date(2025, 4, 14), "EUR", "USD", db_path=currens_db) == Decimal("1.1377")
+    output = capsys.readouterr().out
+    assert "base currency EUR and rate currency USD from 2025-04-14 to 2025-04-14" in output
+    assert "{" not in output

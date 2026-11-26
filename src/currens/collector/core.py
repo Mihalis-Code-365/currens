@@ -83,9 +83,17 @@ def store_european_central_bank_rates(
 ):
     base_currency_iso_code = get_currency_iso_code_by_id(base_currency_id)
     rate_currency_iso_code = get_currency_iso_code_by_id(rate_currency_id)
-    message = "Fetching exchange rates from European Central Bank for base currency {base_currency_iso_code} and rate currency {rate_currency_iso_code} from {start_date} to {end_date}..."
-
-    print(message)
+    message = _(
+        "Fetching exchange rates from European Central Bank for base currency {base_currency_iso_code} and rate currency {rate_currency_iso_code} from {start_date} to {end_date}..."
+    )
+    print(
+        message.format(
+            base_currency_iso_code=base_currency_iso_code,
+            rate_currency_iso_code=rate_currency_iso_code,
+            start_date=start_date,
+            end_date=end_date or _("today"),
+        )
+    )
 
     try:
         data = get_exchange_rates_from_european_central_bank(
