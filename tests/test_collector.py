@@ -75,3 +75,31 @@ def test_store_european_central_bank_rates_without_end_date_says_today(monkeypat
         db_session.configure_database()
 
     assert "from 2025-04-14 to today..." in capsys.readouterr().out
+
+
+def test_init_db_adds_missing_currencies_to_a_seeded_database(monkeypatch, tmp_path) -> None:
+    from currens.db.models import Currency
+    from currens.utils.currency import CURRENCIES
+
+    db_session.configure_database(db_path=tmp_path / "collector.db")
+    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
+    try:
+        Base.metadata.create_all(bind=db_session.engine)
+        with db_session.get_db_session() as session:
+            session.add_all(
+                [
+                    Currency(id=1, name="Euro", iso_code="EUR"),
+                    Currency(id=2, name="US Dollar", iso_code="USD"),
+                    Currency(id=3, name="Swedish Krona", iso_code="SEK"),
+                ]
+            )
+            session.commit()
+
+        core.init_db()
+
+        with db_session.get_db_session() as session:
+            rows = session.query(Currency.id, Currency.iso_code).order_by(Currency.id).all()
+    finally:
+        db_session.configure_database()
+
+    assert [tuple(row) for row in rows] == [(currency_id, code) for currency_id, code, _ in CURRENCIES]

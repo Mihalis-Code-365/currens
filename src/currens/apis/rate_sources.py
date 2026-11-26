@@ -9,7 +9,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from currens.errors import RateProviderUnavailableError
+from currens.errors import RateProviderUnavailableError, UnsupportedCurrencyError
 from currens.utils.currency import get_currency_iso_code_by_id
 
 
@@ -24,13 +24,12 @@ def get_exchange_rates_from_riksbank(
     :raises RateProviderUnavailableError: if the Riksbank could not be reached
     """
     symbol = get_currency_iso_code_by_id(rate_currency_id)
-    symbol_map = {"EUR": "SEKEURPMI", "USD": "SEKUSDPMI"}
+    if symbol == "SEK":
+        raise UnsupportedCurrencyError("The Riksbank publishes no SEK->SEK series.")
+    # Group 130 names every series SEK<CUR>PMI, quoting SEK per 1 unit of <CUR> (#24).
+    series_id = f"SEK{symbol}PMI"
 
-    symbol_id = symbol_map.get(symbol)
-    if not symbol_id:
-        raise ValueError(f"Unknown symbol '{symbol}'")
-
-    url = f"https://api.riksbank.se/swea/v1/Observations/{symbol_id}/{start_date}"
+    url = f"https://api.riksbank.se/swea/v1/Observations/{series_id}/{start_date}"
     if end_date:
         url += f"/{end_date}"
     data = _load_json(url)

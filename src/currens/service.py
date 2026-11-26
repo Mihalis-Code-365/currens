@@ -13,19 +13,27 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
-from currens.errors import RateNotPublishedError, RateProviderUnavailableError
+from currens.errors import (
+    RateNotPublishedError,
+    RateProviderUnavailableError,
+    UnsupportedCurrencyError,
+)
+from currens.utils.currency import (
+    CURRENCIES,
+    get_currency_id_by_iso_code,
+    get_currency_iso_code_by_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
-DEFAULT_CURRENCIES = (
-    (1, "EUR", "EUR"),
-    (2, "USD", "USD"),
-    (3, "SEK", "SEK"),
-)
+# (id, name, iso_code) rows seeded into every cache's `currencies` table.
+DEFAULT_CURRENCIES = tuple((currency_id, name, iso_code) for currency_id, iso_code, name in CURRENCIES)
 EUR_CURRENCY_ID = 1
 USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
+# The only ids Mihalis' old schema (trades.db) shares with currens.
+_LEGACY_CURRENCY_IDS = frozenset({EUR_CURRENCY_ID, USD_CURRENCY_ID, SEK_CURRENCY_ID})
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
 
@@ -101,12 +109,28 @@ def import_mihalis_rates(
     skipped: list[str] = []
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:
+            # A pair currens cannot name is skipped like a bad rate, not allowed to abort the
+            # whole import. Old-schema ids are trusted only for 1/2/3: they were rows of each
+            # trades.db's own `currencies` table, so a 4 there need not be currens' 4 (AUD).
             if use_text_codes:
-                base_id = _currency_id_from_code(str(row["base_currency"]))
-                rate_id = _currency_id_from_code(str(row["target_currency"]))
+                base_code = str(row["base_currency"])
+                rate_code = str(row["target_currency"])
+                pair_label = f"{base_code}->{rate_code}"
+                try:
+                    base_id = _currency_id_from_code(base_code)
+                    rate_id = _currency_id_from_code(rate_code)
+                except UnsupportedCurrencyError:
+                    skipped.append(f"{row['exchange_rate_date']} {pair_label}: unsupported currency")
+                    continue
             else:
                 base_id = int(row["base_currency_id"])
                 rate_id = int(row["target_currency_id"])
+                if not {base_id, rate_id} <= _LEGACY_CURRENCY_IDS:
+                    skipped.append(
+                        f"{row['exchange_rate_date']} currency ids {base_id}->{rate_id}: "
+                        "old-schema ids above 3 are ambiguous"
+                    )
+                    continue
             # A bad rate is skipped, not stored: the missing date is then fetched from the
             # provider, whereas a stored zero would break every lookup of the reverse pair.
             try:
@@ -143,7 +167,8 @@ def import_mihalis_rates(
     if skipped:
         _LOGGER.warning(
             "Skipped %d exchange-rate rows from %s whose rate is not a finite positive "
-            "number; those dates will be fetched from the provider. First ones: %s",
+            "number or whose currencies are not supported; supported pairs are fetched "
+            "from the provider when needed. First ones: %s",
             len(skipped),
             source_db_path,
             "; ".join(skipped[:5]),
@@ -395,11 +420,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _currency_id_from_code(currency_code: str) -> int:
-    normalized = currency_code.upper()
-    for currency_id, _, iso_code in DEFAULT_CURRENCIES:
-        if iso_code == normalized:
-            return currency_id
-    raise ValueError(f"Unsupported currency '{currency_code}'.")
+    return get_currency_id_by_iso_code(currency_code)
 
 
 def _lookup_rate(base_currency_id: int, rate_currency_id: int, calculation_date: date) -> Decimal | None:
@@ -526,8 +547,12 @@ def _fetch_pair_from_provider(
             end_date=end_date,
         )
     else:
-        raise ValueError(
-            f"Unsupported currency pair {base_currency_id}->{rate_currency_id}."
+        # No provider publishes a pair without EUR or SEK, and a cross rate would be a
+        # derived figure, not an official one; for tax use that is the caller's choice (#24).
+        raise UnsupportedCurrencyError(
+            f"No provider publishes {_code_from_id(base_currency_id)}->"
+            f"{_code_from_id(rate_currency_id)}: one side must be EUR (ECB) or SEK "
+            "(Riksbank). Convert through EUR or SEK explicitly."
         )
 
     expected_dates = (
@@ -693,7 +718,4 @@ def _label_for_id(currency_id: int) -> str:
 
 
 def _code_from_id(currency_id: int) -> str:
-    for known_id, _, iso_code in DEFAULT_CURRENCIES:
-        if known_id == currency_id:
-            return iso_code
-    raise ValueError(f"Unknown currency id '{currency_id}'.")
+    return get_currency_iso_code_by_id(currency_id)
