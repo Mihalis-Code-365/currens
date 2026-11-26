@@ -281,3 +281,42 @@ def test_an_old_cache_without_provenance_columns_is_upserted_in_place(tmp_path) 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.3")
     assert get_rate_record(DAY, "EUR", "USD", db_path=db).origin == "o"
     assert _rows(db) == 2
+
+
+def test_re_storing_a_direction_already_cached_is_allowed_beside_its_reverse(tmp_path) -> None:
+    # A range fetch can leave both directions cached; the lookup then reads each direction's own
+    # row and never the reverse, so correcting one's own row displaces nothing.
+    db = tmp_path / "c.db"
+    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="f", origin="o", currens_db_path=db)
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
+            " target_currency_id, value) VALUES ('ECB', '2024-01-02', 2, 1, 0.9)"
+        )
+    store_rates([(DAY, "EUR", "USD", Decimal("1.2"))], source="f", origin="o", currens_db_path=db)
+
+    assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.2")
+
+
+def test_an_unusable_reverse_row_does_not_block_a_store(tmp_path) -> None:
+    # The lookup skips a row that is not finite and positive, so it is never served either way.
+    db = tmp_path / "c.db"
+    store_rates([(DAY, "EUR", "SEK", Decimal("11"))], source="f", origin="o", currens_db_path=db)
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
+            " target_currency_id, value) VALUES ('ECB', '2024-01-02', 1, 2, 0)"
+        )
+    store_rates([(DAY, "USD", "EUR", Decimal("0.9"))], source="f", origin="o", currens_db_path=db)
+
+    assert get_rate(DAY, "USD", "EUR", db_path=db) == Decimal("0.9")
+
+
+def test_a_list_row_is_accepted(tmp_path) -> None:
+    db = tmp_path / "c.db"
+    assert (
+        store_rates(
+            [[DAY, "USD", "SEK", Decimal("10.5")]], source="f", origin="o", currens_db_path=db
+        )
+        == 1
+    )
