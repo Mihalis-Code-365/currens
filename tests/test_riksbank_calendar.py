@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from currens import RateNotPublishedError, RateProviderUnavailableError, ensure_rates_for_dates, get_rate
+from currens import RateNotPublishedError, RateProviderUnavailableError, ensure_rates, get_rate
 from currens import service
 from currens.apis import rate_sources
 
@@ -72,56 +72,65 @@ def test_recent_bank_day_without_rate_is_unavailable(monkeypatch, tmp_path, day)
         get_rate(day, "USD", "SEK", db_path=tmp_path / "c.db")
 
 
-def test_today_without_rate_is_not_published_yet(monkeypatch, tmp_path) -> None:
-    # The Riksbank publishes in the afternoon; a caller valuing "today" walks back a day.
-    _fake_riksbank(monkeypatch)
+@pytest.mark.parametrize(
+    "day",
+    [TODAY, date(2026, 11, 27), date(2026, 11, 18), OLD_BANK_DAY, SATURDAY],
+    ids=["today", "tomorrow", "eight-days-ago", "2022-gap", "weekend"],
+)
+def test_dates_outside_the_window_stay_not_published_without_the_calendar(
+    monkeypatch, tmp_path, day
+) -> None:
+    # The calendar is down: it must not matter, since its answer could not change the result.
+    urls = _fake_riksbank(monkeypatch, calendar=_calendar_down)
 
     with pytest.raises(RateNotPublishedError):
-        get_rate(TODAY, "USD", "SEK", db_path=tmp_path / "c.db")
+        get_rate(day, "USD", "SEK", db_path=tmp_path / "c.db")
+    assert not [url for url in urls if "/CalendarDays/" in url]
 
 
-def test_old_bank_day_gap_is_final_and_logged(monkeypatch, tmp_path, caplog) -> None:
-    _fake_riksbank(monkeypatch)
+def test_holiday_inside_the_window_is_not_published(monkeypatch, tmp_path) -> None:
+    def calendar_with_holiday(url: str) -> bytes:
+        return json.dumps([{"calendarDate": "2026-11-25", "swedishBankday": False}]).encode()
 
-    with pytest.raises(RateNotPublishedError):
-        get_rate(OLD_BANK_DAY, "GBP", "SEK", db_path=tmp_path / "c.db")
-    assert "2022-02-02" in caplog.text
-    assert "treating the gap as final" in caplog.text
-
-
-def test_non_bank_day_is_not_published(monkeypatch, tmp_path) -> None:
-    _fake_riksbank(monkeypatch)
+    _fake_riksbank(monkeypatch, calendar=calendar_with_holiday)
 
     with pytest.raises(RateNotPublishedError):
-        get_rate(SATURDAY, "SEK", "USD", db_path=tmp_path / "c.db")
+        get_rate(YESTERDAY, "USD", "SEK", db_path=tmp_path / "c.db")
 
 
-def test_one_calendar_call_covers_all_missing_dates(monkeypatch, tmp_path) -> None:
-    urls = _fake_riksbank(monkeypatch)
-    old_dates = [date(2022, 2, 1), date(2022, 2, 2), date(2022, 2, 3)]
+def test_range_with_old_holidays_and_one_recent_gap_is_unavailable(monkeypatch, tmp_path) -> None:
+    def only_yesterday_is_a_bank_day(url: str) -> bytes:
+        return json.dumps(
+            [
+                {"calendarDate": day["calendarDate"], "swedishBankday": day["calendarDate"] == "2026-11-25"}
+                for day in json.loads(_calendar(url))
+            ]
+        ).encode()
 
-    with pytest.raises(RateNotPublishedError):
-        ensure_rates_for_dates([("USD", "SEK")], old_dates, db_path=tmp_path / "c.db")
+    urls = _fake_riksbank(monkeypatch, calendar=only_yesterday_is_a_bank_day)
 
+    with pytest.raises(RateProviderUnavailableError, match="2026-11-25"):
+        ensure_rates([("USD", "SEK")], date(2026, 11, 2), YESTERDAY, db_path=tmp_path / "c.db")
+    # Only the window is asked about, not the whole range.
     calendar_urls = [url for url in urls if "/CalendarDays/" in url]
-    assert calendar_urls == ["https://api.riksbank.se/swea/v1/CalendarDays/2022-02-01/2022-02-03"]
+    assert calendar_urls == ["https://api.riksbank.se/swea/v1/CalendarDays/2026-11-19/2026-11-25"]
 
 
 @pytest.mark.parametrize(
     "calendar",
     [
         _calendar_down,
-        lambda url: b'[{"date": "2026-11-21"}]',
-        lambda url: b'[{"calendarDate": "2026-11-21", "swedishBankday": "no"}]',
-        lambda url: b"[]",
+        lambda url: b'[{"date": "2026-11-25"}]',
+        lambda url: b'[{"calendarDate": "2026-11-25", "swedishBankday": "no"}]',
+        lambda url: json.dumps([{"calendarDate": "2026-11-24", "swedishBankday": False}]).encode(),
     ],
-    ids=["calendar-down", "wrong-shape", "non-boolean", "date-missing"],
+    ids=["calendar-down", "wrong-shape", "non-boolean", "date-missing-from-partial-answer"],
 )
 def test_calendar_failure_is_unavailable_never_a_guess(monkeypatch, tmp_path, calendar) -> None:
     _fake_riksbank(monkeypatch, calendar=calendar)
 
     with pytest.raises(RateProviderUnavailableError):
-        get_rate(SATURDAY, "USD", "SEK", db_path=tmp_path / "c.db")
+        get_rate(YESTERDAY, "USD", "SEK", db_path=tmp_path / "c.db")
 
 
 def test_ecb_pairs_do_not_consult_the_riksbank_calendar(monkeypatch, tmp_path) -> None:

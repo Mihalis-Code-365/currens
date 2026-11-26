@@ -10,6 +10,7 @@ dependencies =  [
     "requests",
     "python-dotenv>=1.1.0",
     "ruff>=0.11.2",
+    "tzdata>=2025.2",
 ]
 
 [build-system]

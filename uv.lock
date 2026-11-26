@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.13"
 
 [[package]]
@@ -52,6 +52,7 @@ dependencies = [
     { name = "requests" },
     { name = "ruff" },
     { name = "sqlalchemy" },
+    { name = "tzdata" },
 ]
 
 [package.dev-dependencies]
@@ -66,6 +67,7 @@ requires-dist = [
     { name = "requests" },
     { name = "ruff", specifier = ">=0.11.2" },
     { name = "sqlalchemy" },
+    { name = "tzdata", specifier = ">=2025.2" },
 ]
 
 [package.metadata.requires-dev]

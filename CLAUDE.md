@@ -51,6 +51,6 @@ uv run ruff format src/
 - `currens` is used as an in-process Python dependency, not an HTTP API.
 - Mihalis Sweden annual reports use `ensure_rates_for_dates(...)` so provider holidays do not fail unused full-year dates.
 - Exact-date lookup is still required for dates actually used by calculations.
-- Riksbank gaps (#22): when a Riksbank-routed pair (SEK with a non-EUR currency) lacks a date, the SWEA `CalendarDays` endpoint decides the error. A non-bank day, today, or a bank day older than `RIKSBANK_GAP_WINDOW_DAYS` (7) gives `RateNotPublishedError`; older gaps are also logged. A bank day from yesterday back 7 days, or a failed calendar call, gives `RateProviderUnavailableError`.
+- Riksbank gaps (#22): when a Riksbank-routed pair (SEK with a non-EUR currency) lacks a weekday from yesterday back `RIKSBANK_GAP_WINDOW_DAYS` (7), the SWEA `CalendarDays` endpoint is asked about those dates only. A bank day, or a failed calendar call, gives `RateProviderUnavailableError`. Every other missing date (a holiday, a weekend, today or later, or anything older) stays `RateNotPublishedError` without a calendar call.
 
 **Package management:** Uses `uv`. Python 3.13+ required.
