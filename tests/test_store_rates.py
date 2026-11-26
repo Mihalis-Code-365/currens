@@ -45,7 +45,10 @@ def _rows(db: Path) -> int:
 def test_stored_rate_is_served_without_a_fetch(tmp_path) -> None:
     db = tmp_path / "c.db"
     store_rates(
-        [(DAY, "usd", "SEK", Decimal("10.5"))], source="fixture", origin="fixture", currens_db_path=db
+        [(DAY, "usd", "SEK", Decimal("10.5"))],
+        source="fixture",
+        origin="fixture",
+        currens_db_path=db,
     )
 
     assert get_rate(DAY, "USD", "SEK", db_path=db) == Decimal("10.5")
@@ -62,14 +65,23 @@ def test_returns_the_number_of_rows(tmp_path) -> None:
         (date(2024, 1, 3), "USD", "SEK", Decimal("10.6")),
         (DAY, "EUR", "USD", Decimal("1.1")),
     ]
-    assert store_rates(rows, source="fixture", origin="o", currens_db_path=tmp_path / "c.db") == 3
+    assert (
+        store_rates(
+            rows, source="fixture", origin="o", currens_db_path=tmp_path / "c.db"
+        )
+        == 3
+    )
 
 
 @pytest.mark.parametrize(
     ("bad", "error"),
     [
-        pytest.param(("XXX", "SEK", Decimal("1")), UnsupportedCurrencyError, id="unknown-code"),
-        pytest.param(("USD", "NOK", Decimal("1")), UnsupportedCurrencyError, id="no-eur-or-sek"),
+        pytest.param(
+            ("XXX", "SEK", Decimal("1")), UnsupportedCurrencyError, id="unknown-code"
+        ),
+        pytest.param(
+            ("USD", "NOK", Decimal("1")), UnsupportedCurrencyError, id="no-eur-or-sek"
+        ),
         pytest.param(("SEK", "SEK", Decimal("1")), ValueError, id="same-currency"),
         pytest.param(("USD", "SEK", Decimal(0)), ValueError, id="zero"),
         pytest.param(("USD", "SEK", Decimal("NaN")), ValueError, id="nan"),
@@ -101,18 +113,29 @@ def test_the_error_names_the_pair(tmp_path) -> None:
 
 @pytest.mark.parametrize(
     "when",
-    [pytest.param(datetime(2024, 1, 2), id="datetime"), pytest.param("2024-01-02", id="string")],
+    [
+        pytest.param(datetime(2024, 1, 2), id="datetime"),
+        pytest.param("2024-01-02", id="string"),
+    ],
 )
 def test_a_date_that_is_not_a_plain_date_is_refused(tmp_path, when) -> None:
     db = tmp_path / "c.db"
     with pytest.raises(TypeError):
-        store_rates([(when, "USD", "SEK", Decimal("10.5"))], source="f", origin="o", currens_db_path=db)
+        store_rates(
+            [(when, "USD", "SEK", Decimal("10.5"))],
+            source="f",
+            origin="o",
+            currens_db_path=db,
+        )
     assert _rows(db) == 0
 
 
 @pytest.mark.parametrize(
     ("source", "origin", "named"),
-    [pytest.param(" ", "o", "source", id="source"), pytest.param("f", "", "origin", id="origin")],
+    [
+        pytest.param(" ", "o", "source", id="source"),
+        pytest.param("f", "", "origin", id="origin"),
+    ],
 )
 def test_empty_source_or_origin_is_refused(tmp_path, source, origin, named) -> None:
     with pytest.raises(ValueError, match=named):
@@ -126,16 +149,36 @@ def test_empty_source_or_origin_is_refused(tmp_path, source, origin, named) -> N
 
 def test_existing_row_from_another_source_still_wins(tmp_path) -> None:
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="provider", currens_db_path=db)
-    store_rates([(DAY, "EUR", "USD", Decimal("2.0"))], source="fixture", origin="f", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="ECB",
+        origin="provider",
+        currens_db_path=db,
+    )
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("2.0"))],
+        source="fixture",
+        origin="f",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.1")
 
 
 def test_same_source_replaces(tmp_path) -> None:
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="fixture", origin="f", currens_db_path=db)
-    store_rates([(DAY, "EUR", "USD", Decimal("1.2"))], source="fixture", origin="g", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="fixture",
+        origin="f",
+        currens_db_path=db,
+    )
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.2"))],
+        source="fixture",
+        origin="g",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.2")
     assert get_rate_record(DAY, "EUR", "USD", db_path=db).origin == "g"
@@ -144,22 +187,47 @@ def test_same_source_replaces(tmp_path) -> None:
 
 def test_replacing_a_row_keeps_its_place(tmp_path) -> None:
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="A", origin="o", currens_db_path=db)
-    store_rates([(DAY, "EUR", "USD", Decimal("1.2"))], source="B", origin="o", currens_db_path=db)
-    store_rates([(DAY, "EUR", "USD", Decimal("1.3"))], source="A", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="A",
+        origin="o",
+        currens_db_path=db,
+    )
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.2"))],
+        source="B",
+        origin="o",
+        currens_db_path=db,
+    )
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.3"))],
+        source="A",
+        origin="o",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.3")
 
 
 def test_replacing_clears_a_fetched_rows_provenance(tmp_path) -> None:
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="ECB",
+        origin="o",
+        currens_db_path=db,
+    )
     with sqlite3.connect(db) as connection:
         connection.execute(
             "UPDATE exchange_rates SET series_id = 'EXR', fetched_at = '2024-01-02T16:00:00+00:00',"
             " inverted = 0"
         )
-    store_rates([(DAY, "EUR", "USD", Decimal("1.2"))], source="ECB", origin="f", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.2"))],
+        source="ECB",
+        origin="f",
+        currens_db_path=db,
+    )
 
     record = get_rate_record(DAY, "EUR", "USD", db_path=db)
     assert (record.series_id, record.fetched_at, record.inverted) == (None, None, None)
@@ -217,9 +285,21 @@ def test_a_row_whose_reverse_is_cached_is_refused(tmp_path, source) -> None:
     # A lookup serves USD->EUR from an EUR->USD row when it has none of its own, so a stored
     # USD->EUR row would be served instead of 1/1.1.
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="p", currens_db_path=db)
-    with pytest.raises(ValueError, match=r"2024-01-02 USD->EUR: the cache already holds the reverse"):
-        store_rates([(DAY, "USD", "EUR", Decimal("0.5"))], source=source, origin="f", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="ECB",
+        origin="p",
+        currens_db_path=db,
+    )
+    with pytest.raises(
+        ValueError, match=r"2024-01-02 USD->EUR: the cache already holds the reverse"
+    ):
+        store_rates(
+            [(DAY, "USD", "EUR", Decimal("0.5"))],
+            source=source,
+            origin="f",
+            currens_db_path=db,
+        )
 
     assert get_rate(DAY, "USD", "EUR", db_path=db) == Decimal("1") / Decimal("1.1")
     assert _rows(db) == 1
@@ -235,9 +315,17 @@ def test_a_batch_holding_both_directions_is_refused(tmp_path) -> None:
 
 def test_the_reverse_on_another_date_is_no_obstacle(tmp_path) -> None:
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="p", currens_db_path=db)
     store_rates(
-        [(date(2024, 1, 3), "USD", "EUR", Decimal("0.9"))], source="f", origin="o", currens_db_path=db
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="ECB",
+        origin="p",
+        currens_db_path=db,
+    )
+    store_rates(
+        [(date(2024, 1, 3), "USD", "EUR", Decimal("0.9"))],
+        source="f",
+        origin="o",
+        currens_db_path=db,
     )
     assert get_rate(date(2024, 1, 3), "USD", "EUR", db_path=db) == Decimal("0.9")
 
@@ -252,7 +340,9 @@ def test_the_reverse_on_another_date_is_no_obstacle(tmp_path) -> None:
         pytest.param([(DAY, "USD", "SEK", 10.5)], "f", "o", id="float-rate"),
     ],
 )
-def test_inputs_of_the_wrong_type_are_a_type_error(tmp_path, rows, source, origin) -> None:
+def test_inputs_of_the_wrong_type_are_a_type_error(
+    tmp_path, rows, source, origin
+) -> None:
     db = tmp_path / "c.db"
     with pytest.raises(TypeError):
         store_rates(rows, source=source, origin=origin, currens_db_path=db)
@@ -276,38 +366,62 @@ def test_an_old_cache_without_provenance_columns_is_upserted_in_place(tmp_path) 
             PRAGMA user_version = 1;
             """
         )
-    store_rates([(DAY, "EUR", "USD", Decimal("1.3"))], source="A", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.3"))],
+        source="A",
+        origin="o",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.3")
     assert get_rate_record(DAY, "EUR", "USD", db_path=db).origin == "o"
     assert _rows(db) == 2
 
 
-def test_re_storing_a_direction_already_cached_is_allowed_beside_its_reverse(tmp_path) -> None:
+def test_re_storing_a_direction_already_cached_is_allowed_beside_its_reverse(
+    tmp_path,
+) -> None:
     # A range fetch can leave both directions cached; the lookup then reads each direction's own
     # row and never the reverse, so correcting one's own row displaces nothing.
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="f", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.1"))],
+        source="f",
+        origin="o",
+        currens_db_path=db,
+    )
     with sqlite3.connect(db) as connection:
         connection.execute(
             "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
             " target_currency_id, value) VALUES ('ECB', '2024-01-02', 2, 1, 0.9)"
         )
-    store_rates([(DAY, "EUR", "USD", Decimal("1.2"))], source="f", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "EUR", "USD", Decimal("1.2"))],
+        source="f",
+        origin="o",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.2")
+    assert get_rate(DAY, "USD", "EUR", db_path=db) == Decimal("0.9")
 
 
 def test_an_unusable_reverse_row_does_not_block_a_store(tmp_path) -> None:
     # The lookup skips a row that is not finite and positive, so it is never served either way.
     db = tmp_path / "c.db"
-    store_rates([(DAY, "EUR", "SEK", Decimal("11"))], source="f", origin="o", currens_db_path=db)
+    with using_service_database(db):  # creates the cache's schema
+        pass
     with sqlite3.connect(db) as connection:
         connection.execute(
             "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
             " target_currency_id, value) VALUES ('ECB', '2024-01-02', 1, 2, 0)"
         )
-    store_rates([(DAY, "USD", "EUR", Decimal("0.9"))], source="f", origin="o", currens_db_path=db)
+    store_rates(
+        [(DAY, "USD", "EUR", Decimal("0.9"))],
+        source="f",
+        origin="o",
+        currens_db_path=db,
+    )
 
     assert get_rate(DAY, "USD", "EUR", db_path=db) == Decimal("0.9")
 
@@ -316,7 +430,10 @@ def test_a_list_row_is_accepted(tmp_path) -> None:
     db = tmp_path / "c.db"
     assert (
         store_rates(
-            [[DAY, "USD", "SEK", Decimal("10.5")]], source="f", origin="o", currens_db_path=db
+            [[DAY, "USD", "SEK", Decimal("10.5")]],
+            source="f",
+            origin="o",
+            currens_db_path=db,
         )
         == 1
     )

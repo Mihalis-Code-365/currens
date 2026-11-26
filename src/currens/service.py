@@ -101,7 +101,7 @@ def using_service_database(db_path: str | Path) -> Iterator[Path]:
 
 
 def store_rates(
-    rates: Iterable[tuple[date, str, str, Decimal]],
+    rates: Iterable[Sequence[object]],
     *,
     source: str,
     origin: str,
@@ -136,6 +136,9 @@ def store_rates(
             raise ValueError(f"store_rates needs a non-empty {name}.")
     checked = [_checked_rate_row(row) for row in rates]
     with _connect(_CURRENT_DB_PATH) as connection:
+        # Checks and writes in one write transaction, so another process cannot store the
+        # reverse pair between this check and the insert.
+        connection.execute("BEGIN IMMEDIATE")
         _refuse_reverse_rows(connection, checked)
         connection.executemany(
             """
@@ -183,9 +186,7 @@ def _refuse_reverse_rows(
         seen.add((when, base_id, rate_id))
 
 
-def _checked_rate_row(
-    row: tuple[date, str, str, Decimal],
-) -> tuple[date, int, int, Decimal]:
+def _checked_rate_row(row: object) -> tuple[date, int, int, Decimal]:
     if isinstance(row, (str, bytes)) or not isinstance(row, Sequence) or len(row) != 4:
         raise TypeError(f"each rate must be a (date, base, rate, Decimal) row, not {row!r}.")
     when, base_code, rate_code, rate = row
