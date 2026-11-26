@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+import logging
 import math
 import sqlite3
 from typing import Iterable
@@ -14,6 +15,7 @@ from currens.apis.rate_sources import (
 )
 from currens.errors import RateNotPublishedError, RateProviderUnavailableError
 
+_LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
 DEFAULT_CURRENCIES = (
@@ -84,6 +86,7 @@ def import_mihalis_rates(
             """
         ).fetchall()
 
+    skipped: list[str] = []
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:
             if use_text_codes:
@@ -92,6 +95,18 @@ def import_mihalis_rates(
             else:
                 base_id = int(row["base_currency_id"])
                 target_id = int(row["target_currency_id"])
+            # A bad rate is skipped, not stored: the missing date is then fetched from the
+            # provider, whereas a stored zero would break every lookup of the reverse pair.
+            try:
+                value = float(row["value"])
+            except (TypeError, ValueError):
+                value = math.nan
+            if not _is_usable_rate(value):
+                skipped.append(
+                    f"{row['exchange_rate_date']} {_code_from_id(base_id)}->"
+                    f"{_code_from_id(target_id)} = {row['value']!r}"
+                )
+                continue
             connection.execute(
                 """
                 INSERT OR REPLACE INTO exchange_rates (
@@ -107,12 +122,20 @@ def import_mihalis_rates(
                     _coerce_date(row["exchange_rate_date"]).isoformat(),
                     base_id,
                     target_id,
-                    float(row["value"]),
+                    value,
                 ),
             )
             imported_count += 1
         _delete_invalid_riksbank_rows(connection)
         connection.commit()
+    if skipped:
+        _LOGGER.warning(
+            "Skipped %d exchange-rate rows from %s whose rate is not a finite positive "
+            "number; those dates will be fetched from the provider. First ones: %s",
+            len(skipped),
+            source_db_path,
+            "; ".join(skipped[:5]),
+        )
     return imported_count
 
 
@@ -358,33 +381,37 @@ def _currency_id_from_code(currency_code: str) -> int:
 
 def _lookup_rate(base_currency_id: int, target_currency_id: int, calculation_date: date) -> Decimal | None:
     with _connect(_CURRENT_DB_PATH) as connection:
-        direct = connection.execute(
-            """
-            SELECT value
-            FROM exchange_rates
-            WHERE base_currency_id = ?
-              AND target_currency_id = ?
-              AND exchange_rate_date = ?
-            LIMIT 1
-            """,
-            (base_currency_id, target_currency_id, calculation_date.isoformat()),
-        ).fetchone()
+        direct = _stored_rate(connection, base_currency_id, target_currency_id, calculation_date)
         if direct is not None:
-            return Decimal(str(direct["value"]))
-
-        inverse = connection.execute(
-            """
-            SELECT value
-            FROM exchange_rates
-            WHERE base_currency_id = ?
-              AND target_currency_id = ?
-              AND exchange_rate_date = ?
-            LIMIT 1
-            """,
-            (target_currency_id, base_currency_id, calculation_date.isoformat()),
-        ).fetchone()
+            return direct
+        inverse = _stored_rate(connection, target_currency_id, base_currency_id, calculation_date)
         if inverse is not None:
-            return Decimal("1") / Decimal(str(inverse["value"]))
+            return Decimal("1") / inverse
+    return None
+
+
+def _stored_rate(
+    connection: sqlite3.Connection,
+    base_currency_id: int,
+    target_currency_id: int,
+    calculation_date: date,
+) -> Decimal | None:
+    # A stored row that is not finite and positive (written before #19/#20, or by hand) is
+    # treated as missing, so it is refetched rather than served or divided by.
+    rows = connection.execute(
+        """
+        SELECT value
+        FROM exchange_rates
+        WHERE base_currency_id = ?
+          AND target_currency_id = ?
+          AND exchange_rate_date = ?
+        ORDER BY rowid
+        """,
+        (base_currency_id, target_currency_id, calculation_date.isoformat()),
+    ).fetchall()
+    for row in rows:
+        if isinstance(row["value"], (int, float)) and _is_usable_rate(row["value"]):
+            return Decimal(str(row["value"]))
     return None
 
 
@@ -571,6 +598,7 @@ def _normalize_provider_rows(
             f"Unexpected response from {source}: expected a list of rows, got {rows!r}"
         )
     records: list[ExchangeRateRecord] = []
+    rate_by_date: dict[date, Decimal] = {}
     for item in rows:
         # A bad row must raise, never be skipped: a skipped row reads as "not published".
         try:
@@ -587,10 +615,19 @@ def _normalize_provider_rows(
                 f"Unreadable row from {source}: {item!r} ({exc})"
             ) from exc
         # Checked before anything is cached: a zero would later divide by zero on the reverse pair.
-        if not rate_value.is_finite() or rate_value <= 0:
+        if not _is_usable_rate(rate_value):
             raise RateProviderUnavailableError(
                 f"Rate from {source} is not a finite positive number: {item!r}"
             )
+        # The cache keeps one row per date, so a second, different rate would silently win.
+        if item_date in rate_by_date:
+            if rate_by_date[item_date] != rate_value:
+                raise RateProviderUnavailableError(
+                    f"{source} returned conflicting rates for {item_date.isoformat()}: "
+                    f"{rate_by_date[item_date]} and {rate_value}"
+                )
+            continue
+        rate_by_date[item_date] = rate_value
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=item_date,
@@ -601,6 +638,11 @@ def _normalize_provider_rows(
             )
         )
     return records
+
+
+def _is_usable_rate(value: Decimal | float) -> bool:
+    """A rate can be stored, served and inverted only if it is finite and positive."""
+    return math.isfinite(value) and value > 0
 
 
 def _coerce_date(value) -> date:
