@@ -103,8 +103,8 @@ def import_mihalis_rates(
                 value = math.nan
             if not _is_usable_rate(value):
                 skipped.append(
-                    f"{row['exchange_rate_date']} {_code_from_id(base_id)}->"
-                    f"{_code_from_id(target_id)} = {row['value']!r}"
+                    f"{row['exchange_rate_date']} {_label_for_id(base_id)}->"
+                    f"{_label_for_id(target_id)} = {row['value']!r}"
                 )
                 continue
             connection.execute(
@@ -277,7 +277,7 @@ def get_rates_for_period(
             WHERE base_currency_id = ?
               AND target_currency_id = ?
               AND exchange_rate_date BETWEEN ? AND ?
-            ORDER BY exchange_rate_date ASC
+            ORDER BY exchange_rate_date ASC, rowid ASC
             """,
             (
                 base_currency_id,
@@ -286,16 +286,27 @@ def get_rates_for_period(
                 end_date.isoformat(),
             ),
         ).fetchall()
-    return [
-        ExchangeRateRecord(
-            exchange_rate_date=_coerce_date(row["exchange_rate_date"]),
-            value=Decimal(str(row["value"])),
-            source=str(row["source"]),
-            base_currency_id=int(row["base_currency_id"]),
-            target_currency_id=int(row["target_currency_id"]),
+    # Same rule as _stored_rate: skip rows that are not usable, and return one rate per
+    # date (the first usable one), since a refetch can sit next to an old bad row.
+    records: list[ExchangeRateRecord] = []
+    seen_dates: set[date] = set()
+    for row in rows:
+        row_date = _coerce_date(row["exchange_rate_date"])
+        if row_date in seen_dates:
+            continue
+        if not isinstance(row["value"], (int, float)) or not _is_usable_rate(row["value"]):
+            continue
+        seen_dates.add(row_date)
+        records.append(
+            ExchangeRateRecord(
+                exchange_rate_date=row_date,
+                value=Decimal(str(row["value"])),
+                source=str(row["source"]),
+                base_currency_id=int(row["base_currency_id"]),
+                target_currency_id=int(row["target_currency_id"]),
+            )
         )
-        for row in rows
-    ]
+    return records
 
 
 def _ensure_schema(db_path: Path) -> None:
@@ -641,7 +652,15 @@ def _normalize_provider_rows(
 
 
 def _is_usable_rate(value: Decimal | float) -> bool:
-    """A rate can be stored, served and inverted only if it is finite and positive."""
+    """A rate can be stored, served and inverted only if it is finite and positive.
+
+    Judged as the float the cache stores, so a Decimal that rounds to 0.0 or overflows to
+    infinity is refused before it is cached, not silently served as missing afterwards.
+    """
+    if isinstance(value, Decimal):
+        if not value.is_finite():  # also covers sNaN, which float() refuses to convert
+            return False
+        value = float(value)
     return math.isfinite(value) and value > 0
 
 
@@ -651,6 +670,14 @@ def _coerce_date(value) -> date:
     if value is None:
         raise ValueError("Date value is required.")
     return datetime.strptime(str(value), "%Y-%m-%d").date()
+
+
+def _label_for_id(currency_id: int) -> str:
+    """The ISO code for a log line, or the raw id: an unknown id must not turn a skip into an abort."""
+    try:
+        return _code_from_id(currency_id)
+    except ValueError:
+        return f"currency id {currency_id}"
 
 
 def _code_from_id(currency_id: int) -> str:
