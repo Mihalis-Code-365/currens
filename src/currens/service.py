@@ -13,16 +13,22 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
-from currens.errors import RateNotPublishedError, RateProviderUnavailableError
+from currens.errors import (
+    RateNotPublishedError,
+    RateProviderUnavailableError,
+    UnsupportedCurrencyError,
+)
+from currens.utils.currency import (
+    CURRENCIES,
+    get_currency_id_by_iso_code,
+    get_currency_iso_code_by_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
-DEFAULT_CURRENCIES = (
-    (1, "EUR", "EUR"),
-    (2, "USD", "USD"),
-    (3, "SEK", "SEK"),
-)
+# (id, name, iso_code) rows seeded into every cache's `currencies` table.
+DEFAULT_CURRENCIES = tuple((currency_id, name, iso_code) for currency_id, iso_code, name in CURRENCIES)
 EUR_CURRENCY_ID = 1
 USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
@@ -395,11 +401,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _currency_id_from_code(currency_code: str) -> int:
-    normalized = currency_code.upper()
-    for currency_id, _, iso_code in DEFAULT_CURRENCIES:
-        if iso_code == normalized:
-            return currency_id
-    raise ValueError(f"Unsupported currency '{currency_code}'.")
+    return get_currency_id_by_iso_code(currency_code)
 
 
 def _lookup_rate(base_currency_id: int, rate_currency_id: int, calculation_date: date) -> Decimal | None:
@@ -526,8 +528,12 @@ def _fetch_pair_from_provider(
             end_date=end_date,
         )
     else:
-        raise ValueError(
-            f"Unsupported currency pair {base_currency_id}->{rate_currency_id}."
+        # No provider publishes a pair without EUR or SEK, and a cross rate would be a
+        # derived figure, not an official one; for tax use that is the caller's choice (#24).
+        raise UnsupportedCurrencyError(
+            f"No provider publishes {_code_from_id(base_currency_id)}->"
+            f"{_code_from_id(rate_currency_id)}: one side must be EUR (ECB) or SEK "
+            "(Riksbank). Convert through EUR or SEK explicitly."
         )
 
     expected_dates = (
@@ -693,7 +699,4 @@ def _label_for_id(currency_id: int) -> str:
 
 
 def _code_from_id(currency_id: int) -> str:
-    for known_id, _, iso_code in DEFAULT_CURRENCIES:
-        if known_id == currency_id:
-            return iso_code
-    raise ValueError(f"Unknown currency id '{currency_id}'.")
+    return get_currency_iso_code_by_id(currency_id)

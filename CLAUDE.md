@@ -36,7 +36,7 @@ uv run ruff format src/
 - `src/currens/__main__.py` — CLI entry point; supports `--init`, `--recreate`, and `--import-mihalis-rates`
 - `src/currens/apis/rate_sources.py` — ECB and Riksbank fetchers
 - `src/currens/collector/core.py` — legacy collector behind the CLI: `init_db` / `recreate_db` (seeds EUR/USD/SEK currencies) and `store_riksbank_rates` / `store_european_central_bank_rates`
-- `src/currens/utils/currency.py` — hardcoded currency id → ISO code map (`1=EUR`, `2=USD`, `3=SEK`) via `get_currency_iso_code_by_id`; used by `rate_sources.py` and the collector
+- `src/currens/utils/currency.py` — `CURRENCIES`, the one append-only currency table (ids 1–30; `1=EUR`, `2=USD`, `3=SEK` are fixed for Mihalis' old schema). It lists every currency both the ECB and the Riksbank publish daily. A pair needs EUR (→ ECB) or SEK (→ Riksbank) on one side; any other pair raises `UnsupportedCurrencyError` (no derived cross rates, #24)
 - `src/currens/db/session.py` / `src/currens/db/models.py` — legacy SQLAlchemy support used by older collector code
 - `src/currens/utils/multilanguage_support.py` — gettext-based i18n; `setup_translation(lang_code)` installs `_()` globally; locales in `locales/` (Greek `el`, English `en`)
 

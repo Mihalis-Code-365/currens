@@ -8,7 +8,7 @@ from currens.db.session import get_db_session
 from currens.errors import RateProviderUnavailableError
 # The service's row checks, so the collector cannot store what get_rate would refuse (#20).
 from currens.service import SEK_CURRENCY_ID, ExchangeRateRecord, _normalize_provider_rows
-from currens.utils.currency import get_currency_iso_code_by_id
+from currens.utils.currency import CURRENCIES, get_currency_iso_code_by_id
 
 
 def init_db():
@@ -19,16 +19,17 @@ def init_db():
     # Pre-populate base currencies
     session = db_session.SessionLocal()
     try:
-        if not session.query(Currency).count():
+        # Adds whatever the table lacks, so a database seeded with fewer currencies catches up.
+        existing_ids = {currency_id for (currency_id,) in session.query(Currency.id)}
+        missing = [row for row in CURRENCIES if row[0] not in existing_ids]
+        if missing:
             print("Pre-populating base currencies...")
-            currencies = [
-                Currency(id=1, name="Euro", iso_code="EUR"),
-                Currency(id=2, name="US Dollar", iso_code="USD"),
-                Currency(id=3, name="Swedish Krona", iso_code="SEK"),
-            ]
-            session.add_all(currencies)
+            session.add_all(
+                Currency(id=currency_id, name=name, iso_code=iso_code)
+                for currency_id, iso_code, name in missing
+            )
             session.commit()
-            print("Inserted base currencies: EUR, USD, SEK")
+            print("Inserted base currencies: " + ", ".join(row[1] for row in missing))
         else:
             print("Base currencies already exist. Skipping pre-population.")
     finally:
