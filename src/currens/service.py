@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 import logging
@@ -51,6 +51,15 @@ class ExchangeRateRecord:
     source: str
     base_currency_id: int
     rate_currency_id: int
+    # Provenance (#23); None for rows cached before it was recorded.
+    series_id: str | None = None
+    """The provider's series, e.g. `SEKUSDPMI` or `EXR/D.USD.EUR.SP00.A`."""
+    fetched_at: datetime | None = None
+    """When currens fetched the rate from the provider (UTC)."""
+    inverted: bool | None = None
+    """True if `rate` is the reciprocal of the provider's own quote."""
+    origin: str | None = None
+    """`provider` for a fetch, `import_mihalis_rates:<file>` for an imported row."""
 
     # Old field names, for attribute reads only: constructing a record or calling
     # dataclasses.replace() needs the new names.
@@ -111,6 +120,8 @@ def import_mihalis_rates(
         ).fetchall()
 
     skipped: list[str] = []
+    # Series, fetch time and direction are not in Mihalis' table, so they stay NULL (#23).
+    import_origin = f"import_mihalis_rates:{Path(source_db_path).expanduser().resolve()}"
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:
             # A pair currens cannot name is skipped like a bad rate, not allowed to abort the
@@ -154,8 +165,9 @@ def import_mihalis_rates(
                     exchange_rate_date,
                     base_currency_id,
                     target_currency_id,
-                    value
-                ) VALUES (?, ?, ?, ?, ?)
+                    value,
+                    origin
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(row["source"] or "legacy"),
@@ -163,6 +175,7 @@ def import_mihalis_rates(
                     base_id,
                     rate_id,
                     rate,
+                    import_origin,
                 ),
             )
             imported_count += 1
@@ -265,6 +278,41 @@ def has_rate(
     return _lookup_rate(base_currency_id, rate_currency_id, calculation_date) is not None
 
 
+def get_rate_record(
+    calculation_date: date,
+    base_currency: str,
+    target_currency: str,
+    *,
+    db_path: str | Path | None = None,
+) -> ExchangeRateRecord:
+    """Like `get_rate`, but the whole record, so a caller can show where the rate came from (#23).
+
+    `record.rate` equals what `get_rate` returns. The provenance fields are None for rows
+    cached before they were recorded, and for the identity rate of a currency to itself.
+    """
+    configure_service_database(db_path)
+    base_currency_id = _currency_id_from_code(base_currency)
+    rate_currency_id = _currency_id_from_code(target_currency)
+    if base_currency_id == rate_currency_id:
+        return ExchangeRateRecord(
+            exchange_rate_date=calculation_date,
+            rate=Decimal("1"),
+            source="identity",
+            base_currency_id=base_currency_id,
+            rate_currency_id=rate_currency_id,
+        )
+    record = _lookup_record(base_currency_id, rate_currency_id, calculation_date)
+    if record is None:
+        get_rate(calculation_date, base_currency, target_currency, db_path=db_path)
+        record = _lookup_record(base_currency_id, rate_currency_id, calculation_date)
+    if record is None:  # get_rate raises first; kept so the return type holds
+        raise RateNotPublishedError(
+            f"Exchange rate not found for {base_currency} to {target_currency} on "
+            f"{calculation_date.isoformat()}"
+        )
+    return record
+
+
 def get_rate(
     calculation_date: date,
     base_currency: str,
@@ -312,8 +360,8 @@ def get_rates_for_period(
 
     with _connect(_CURRENT_DB_PATH) as connection:
         rows = connection.execute(
-            """
-            SELECT exchange_rate_date, value, source, base_currency_id, target_currency_id
+            f"""
+            SELECT {_RECORD_COLUMNS}
             FROM exchange_rates
             WHERE base_currency_id = ?
               AND target_currency_id = ?
@@ -338,15 +386,7 @@ def get_rates_for_period(
         if not isinstance(row["value"], (int, float)) or not _is_usable_rate(row["value"]):
             continue
         seen_dates.add(row_date)
-        records.append(
-            ExchangeRateRecord(
-                exchange_rate_date=row_date,
-                rate=Decimal(str(row["value"])),
-                source=str(row["source"]),
-                base_currency_id=int(row["base_currency_id"]),
-                rate_currency_id=int(row["target_currency_id"]),
-            )
-        )
+        records.append(_record_from_row(row))
     return records
 
 
@@ -387,6 +427,23 @@ def _migrate(connection: sqlite3.Connection) -> None:
     if version < 1:
         _delete_invalid_riksbank_rows(connection)
         connection.execute("PRAGMA user_version = 1")
+    # Nullable provenance columns (#23); rows cached before keep NULLs. Checked on every
+    # open, not gated on user_version: the collector's --recreate drops and recreates the
+    # table without them while the version in the file header stays at 2.
+    existing = {row[1] for row in connection.execute("PRAGMA table_info(exchange_rates)")}
+    for column, sql_type in _PROVENANCE_COLUMNS:
+        if column not in existing:
+            connection.execute(f"ALTER TABLE exchange_rates ADD COLUMN {column} {sql_type}")
+    if version < 2:
+        connection.execute("PRAGMA user_version = 2")
+
+
+_PROVENANCE_COLUMNS = (
+    ("series_id", "TEXT"),
+    ("fetched_at", "TEXT"),
+    ("inverted", "INTEGER"),
+    ("origin", "TEXT"),
+)
 
 
 def _delete_invalid_riksbank_rows(connection: sqlite3.Connection) -> None:
@@ -428,27 +485,42 @@ def _currency_id_from_code(currency_code: str) -> int:
 
 
 def _lookup_rate(base_currency_id: int, rate_currency_id: int, calculation_date: date) -> Decimal | None:
+    record = _lookup_record(base_currency_id, rate_currency_id, calculation_date)
+    return None if record is None else record.rate
+
+
+def _lookup_record(
+    base_currency_id: int, rate_currency_id: int, calculation_date: date
+) -> ExchangeRateRecord | None:
     with _connect(_CURRENT_DB_PATH) as connection:
-        direct = _stored_rate(connection, base_currency_id, rate_currency_id, calculation_date)
+        direct = _stored_record(connection, base_currency_id, rate_currency_id, calculation_date)
         if direct is not None:
             return direct
-        inverse = _stored_rate(connection, rate_currency_id, base_currency_id, calculation_date)
+        inverse = _stored_record(connection, rate_currency_id, base_currency_id, calculation_date)
         if inverse is not None:
-            return Decimal("1") / inverse
+            # Served as the reciprocal of the stored row, so relative to the provider's own
+            # quote it is inverted exactly when the stored row was not.
+            return replace(
+                inverse,
+                rate=Decimal("1") / inverse.rate,
+                base_currency_id=base_currency_id,
+                rate_currency_id=rate_currency_id,
+                inverted=None if inverse.inverted is None else not inverse.inverted,
+            )
     return None
 
 
-def _stored_rate(
+def _stored_record(
     connection: sqlite3.Connection,
     base_currency_id: int,
     rate_currency_id: int,
     calculation_date: date,
-) -> Decimal | None:
+) -> ExchangeRateRecord | None:
     # A stored row that is not finite and positive (written before #19/#20, or by hand) is
     # treated as missing, so it is refetched rather than served or divided by.
     rows = connection.execute(
-        """
-        SELECT value
+        f"""
+        SELECT {_RECORD_COLUMNS}
         FROM exchange_rates
         WHERE base_currency_id = ?
           AND target_currency_id = ?
@@ -459,8 +531,44 @@ def _stored_rate(
     ).fetchall()
     for row in rows:
         if isinstance(row["value"], (int, float)) and _is_usable_rate(row["value"]):
-            return Decimal(str(row["value"]))
+            return _record_from_row(row)
     return None
+
+
+_RECORD_COLUMNS = (
+    "exchange_rate_date, value, source, base_currency_id, target_currency_id,"
+    " series_id, fetched_at, inverted, origin"
+)
+
+
+def _record_from_row(row: sqlite3.Row) -> ExchangeRateRecord:
+    return ExchangeRateRecord(
+        exchange_rate_date=_coerce_date(row["exchange_rate_date"]),
+        rate=Decimal(str(row["value"])),
+        source=str(row["source"]),
+        base_currency_id=int(row["base_currency_id"]),
+        rate_currency_id=int(row["target_currency_id"]),
+        series_id=_text_or_none(row["series_id"]),
+        fetched_at=_utc_datetime_or_none(row["fetched_at"]),
+        inverted=row["inverted"] if row["inverted"] is None else bool(row["inverted"]),
+        origin=_text_or_none(row["origin"]),
+    )
+
+
+# Provenance is informational: an unreadable value (hand-edited, another tool) reads as
+# unknown, so it can never make get_rate fail where it served the rate before #23.
+def _text_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _utc_datetime_or_none(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 def _has_complete_coverage(
@@ -511,8 +619,12 @@ def _fetch_and_store_pair(
                 exchange_rate_date,
                 base_currency_id,
                 target_currency_id,
-                value
-            ) VALUES (?, ?, ?, ?, ?)
+                value,
+                series_id,
+                fetched_at,
+                inverted,
+                origin
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -521,6 +633,10 @@ def _fetch_and_store_pair(
                     record.base_currency_id,
                     record.rate_currency_id,
                     float(record.rate),
+                    record.series_id,
+                    None if record.fetched_at is None else record.fetched_at.isoformat(),
+                    None if record.inverted is None else int(record.inverted),
+                    record.origin,
                 )
                 for record in fetched_records
             ],
@@ -645,6 +761,10 @@ def _fetch_from_ecb(
         base_currency_id=base_currency_id,
         rate_currency_id=rate_currency_id,
         invert_rate=is_reversed,
+        series_id=(
+            f"EXR/D.{_code_from_id(api_rate_currency_id)}."
+            f"{_code_from_id(api_base_currency_id)}.SP00.A"
+        ),
     )
 
 
@@ -677,6 +797,7 @@ def _fetch_from_riksbank(
         base_currency_id=base_currency_id,
         rate_currency_id=rate_currency_id,
         invert_rate=is_reversed,
+        series_id=f"SEK{_code_from_id(foreign_currency_id)}PMI",
     )
 
 
@@ -687,6 +808,7 @@ def _normalize_provider_rows(
     base_currency_id: int,
     rate_currency_id: int,
     invert_rate: bool,
+    series_id: str | None = None,
 ) -> list[ExchangeRateRecord]:
     is_data_envelope = isinstance(rows, dict) and "data" in rows
     if is_data_envelope:
@@ -698,6 +820,7 @@ def _normalize_provider_rows(
         )
     records: list[ExchangeRateRecord] = []
     rate_by_date: dict[date, Decimal] = {}
+    fetched_at = datetime.now(UTC)
     for item in rows:
         # A bad row must raise, never be skipped: a skipped row reads as "not published".
         try:
@@ -734,6 +857,10 @@ def _normalize_provider_rows(
                 source=source,
                 base_currency_id=base_currency_id,
                 rate_currency_id=rate_currency_id,
+                series_id=series_id,
+                fetched_at=fetched_at,
+                inverted=invert_rate,
+                origin="provider",
             )
         )
     return records
