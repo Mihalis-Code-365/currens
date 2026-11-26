@@ -105,3 +105,35 @@ def test_init_db_adds_missing_currencies_to_a_seeded_database(monkeypatch, tmp_p
         db_session.configure_database()
 
     assert [tuple(row) for row in rows] == [(currency_id, code) for currency_id, code, _ in CURRENCIES]
+
+
+def test_collector_writes_to_a_cache_made_before_provenance(monkeypatch, tmp_path) -> None:
+    import sqlite3
+
+    currens_db = tmp_path / "old.db"
+    with sqlite3.connect(currens_db) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE currencies (id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL,
+                                     iso_code TEXT NOT NULL UNIQUE);
+            CREATE TABLE exchange_rates (source TEXT NOT NULL, exchange_rate_date TEXT NOT NULL,
+                base_currency_id INTEGER NOT NULL, target_currency_id INTEGER NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (source, exchange_rate_date, base_currency_id, target_currency_id));
+            PRAGMA user_version = 1;
+            """
+        )
+    db_session.configure_database(db_path=currens_db)
+    monkeypatch.setattr(builtins, "_", lambda message: message, raising=False)
+    monkeypatch.setattr(
+        core,
+        "get_exchange_rates_from_riksbank",
+        lambda currency_id, start_date, end_date=None: [{"date": "2025-04-16", "value": 10.0}],
+    )
+    try:
+        core.store_riksbank_rates(currency_id=2, start_date="2025-04-16")
+    finally:
+        db_session.configure_database()
+
+    record = get_rate_record(date(2025, 4, 16), "USD", "SEK", db_path=currens_db)
+    assert (record.rate, record.series_id) == (Decimal("10"), "SEKUSDPMI")

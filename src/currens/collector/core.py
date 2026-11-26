@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
@@ -7,13 +9,30 @@ from currens.db.models import Base, Currency, ExchangeRate
 from currens.db.session import get_db_session
 from currens.errors import RateProviderUnavailableError
 # The service's row checks, so the collector cannot store what get_rate would refuse (#20).
-from currens.service import SEK_CURRENCY_ID, ExchangeRateRecord, _normalize_provider_rows
+from currens.service import (
+    SEK_CURRENCY_ID,
+    ExchangeRateRecord,
+    _ensure_schema,
+    _normalize_provider_rows,
+)
 from currens.utils.currency import CURRENCIES, get_currency_iso_code_by_id
+
+
+def _ensure_cache_schema() -> None:
+    """Bring a SQLite cache to the service's schema before the ORM touches it.
+
+    The ORM model maps the provenance columns (#23), which only the service's migration adds
+    to an existing table; create_all never alters one.
+    """
+    url = db_session.engine.url
+    if url.get_backend_name() == "sqlite" and url.database and url.database != ":memory:":
+        _ensure_schema(Path(url.database))
 
 
 def init_db():
     print(_("Initializing the database..."))
     Base.metadata.create_all(bind=db_session.engine)
+    _ensure_cache_schema()
     print(_("Database tables created."))
 
     # Pre-populate base currencies
@@ -125,6 +144,7 @@ def store_european_central_bank_rates(
 
 def _store_records(records: list[ExchangeRateRecord]) -> None:
     print(f"Fetched {len(records)} records. Storing them in the database...")
+    _ensure_cache_schema()
     with get_db_session() as session:
         for record in records:
             session.merge(
