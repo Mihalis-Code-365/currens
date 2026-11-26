@@ -2,13 +2,12 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
-from datetime import datetime
-
 from currens.db import session as db_session
 from currens.db.models import Base, Currency, ExchangeRate
 from currens.db.session import get_db_session
 from currens.errors import RateProviderUnavailableError
-from currens.service import SEK_CURRENCY_ID
+# The service's row checks, so the collector cannot store what get_rate would refuse (#20).
+from currens.service import SEK_CURRENCY_ID, ExchangeRateRecord, _normalize_provider_rows
 from currens.utils.currency import get_currency_iso_code_by_id
 
 
@@ -63,23 +62,19 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
 
     try:
         data = get_exchange_rates_from_riksbank(currency_id, start_date, end_date)
+        # Riksbank series quote SEK per 1 unit of the foreign currency.
+        records = _normalize_provider_rows(
+            rows=data,
+            source="Riksbank",
+            base_currency_id=currency_id,
+            target_currency_id=SEK_CURRENCY_ID,
+            reverse_value=False,
+        )
     except (RateProviderUnavailableError, ValueError) as e:
         print(f"Error fetching data: {e}")
         return
 
-    print(f"Fetched {len(data)} records. Storing them in the database...")
-    with get_db_session() as session:
-        for record in data:
-            rate = ExchangeRate(
-                source="Riksbank",
-                exchange_rate_date=datetime.strptime(record["date"], "%Y-%m-%d").date(),
-                # Riksbank series quote SEK per 1 unit of the foreign currency.
-                base_currency_id=currency_id,
-                target_currency_id=SEK_CURRENCY_ID,
-                value=float(record["value"]),
-            )
-            session.merge(rate)
-        session.commit()
+    _store_records(records)
     print(f"Successfully stored exchange rates for currency {currency_iso_code}.")
 
 
@@ -96,22 +91,34 @@ def store_european_central_bank_rates(
         data = get_exchange_rates_from_european_central_bank(
             base_currency_id, rate_currency_id, start_date, end_date
         )
+        records = _normalize_provider_rows(
+            rows=data,
+            source="EuropeanCentralBank",
+            base_currency_id=base_currency_id,
+            target_currency_id=rate_currency_id,
+            reverse_value=False,
+        )
     except (RateProviderUnavailableError, ValueError) as e:
         print(f"Error fetching data: {e}")
         return
 
-    print(f"Fetched {len(data)} records. Storing them in the database...")
-    with get_db_session() as session:
-        for record in data:
-            rate = ExchangeRate(
-                source="EuropeanCentralBank",
-                exchange_rate_date=datetime.strptime(record["date"], "%Y-%m-%d").date(),
-                base_currency_id=base_currency_id,
-                target_currency_id=rate_currency_id,
-                value=float(record["value"]),
-            )
-            session.merge(rate)
-        session.commit()
+    _store_records(records)
     print(
         f"Successfully stored exchange rates for base currency {base_currency_iso_code} and rate currency {rate_currency_iso_code}."
     )
+
+
+def _store_records(records: list[ExchangeRateRecord]) -> None:
+    print(f"Fetched {len(records)} records. Storing them in the database...")
+    with get_db_session() as session:
+        for record in records:
+            session.merge(
+                ExchangeRate(
+                    source=record.source,
+                    exchange_rate_date=record.exchange_rate_date,
+                    base_currency_id=record.base_currency_id,
+                    target_currency_id=record.target_currency_id,
+                    value=float(record.value),
+                )
+            )
+        session.commit()
