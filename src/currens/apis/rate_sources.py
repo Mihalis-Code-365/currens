@@ -5,22 +5,12 @@ This module contains functions to fetch data from external APIs.
 from datetime import datetime
 from http.client import HTTPException
 import json
-from typing import Optional
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from currens.errors import RateProviderUnavailableError
 from currens.utils.currency import get_currency_iso_code_by_id
-
-
-def count_calls(func):
-    def wrapper(*args, **kwargs):
-        wrapper.calls += 1
-        return func(*args, **kwargs)
-
-    wrapper.calls = 0
-    return wrapper
 
 
 def get_exchange_rates_from_riksbank(
@@ -109,37 +99,6 @@ def get_exchange_rates_from_european_central_bank(
     ]
 
     return date_value_pairs
-
-
-@count_calls
-def get_exchange_rate_from_exchangerate(date, base_currency, target_currency):
-    if base_currency == target_currency:
-        raise ValueError("base_currency is equal to target_currency")
-    elif base_currency == "EUR" and target_currency == "SEK":
-        return 10.0
-    elif base_currency == "USD" and target_currency == "SEK":
-        return 10.41
-    elif base_currency == "USD" and target_currency == "EUR":
-        return 0.92
-    else:
-        raise ValueError(f"Unknown currency pair '{base_currency}'/'{target_currency}'")
-
-    # Construct the API endpoint with the specified parameters
-    api_endpoint = "http://api.exchangerate.host/convert"
-    params = {
-        "date": date,
-        "from": base_currency,
-        "to": target_currency,
-        "amount": 1,
-        "access_key": "819ce799652e09c5a9dea68179d0dbe6",
-    }
-
-    # Make the request
-    try:
-        data = _load_json(f"{api_endpoint}?{urlencode(params)}")
-        return data["result"]
-    except RateProviderUnavailableError:
-        return None
 
 
 def _load_json(url: str):
