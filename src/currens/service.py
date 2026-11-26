@@ -427,12 +427,14 @@ def _migrate(connection: sqlite3.Connection) -> None:
     if version < 1:
         _delete_invalid_riksbank_rows(connection)
         connection.execute("PRAGMA user_version = 1")
+    # Nullable provenance columns (#23); rows cached before keep NULLs. Checked on every
+    # open, not gated on user_version: the collector's --recreate drops and recreates the
+    # table without them while the version in the file header stays at 2.
+    existing = {row[1] for row in connection.execute("PRAGMA table_info(exchange_rates)")}
+    for column, sql_type in _PROVENANCE_COLUMNS:
+        if column not in existing:
+            connection.execute(f"ALTER TABLE exchange_rates ADD COLUMN {column} {sql_type}")
     if version < 2:
-        # Nullable provenance columns (#23); rows cached before keep NULLs.
-        existing = {row[1] for row in connection.execute("PRAGMA table_info(exchange_rates)")}
-        for column, sql_type in _PROVENANCE_COLUMNS:
-            if column not in existing:
-                connection.execute(f"ALTER TABLE exchange_rates ADD COLUMN {column} {sql_type}")
         connection.execute("PRAGMA user_version = 2")
 
 
@@ -546,11 +548,27 @@ def _record_from_row(row: sqlite3.Row) -> ExchangeRateRecord:
         source=str(row["source"]),
         base_currency_id=int(row["base_currency_id"]),
         rate_currency_id=int(row["target_currency_id"]),
-        series_id=row["series_id"],
-        fetched_at=None if row["fetched_at"] is None else datetime.fromisoformat(row["fetched_at"]),
-        inverted=None if row["inverted"] is None else bool(row["inverted"]),
-        origin=row["origin"],
+        series_id=_text_or_none(row["series_id"]),
+        fetched_at=_utc_datetime_or_none(row["fetched_at"]),
+        inverted=row["inverted"] if row["inverted"] is None else bool(row["inverted"]),
+        origin=_text_or_none(row["origin"]),
     )
+
+
+# Provenance is informational: an unreadable value (hand-edited, another tool) reads as
+# unknown, so it can never make get_rate fail where it served the rate before #23.
+def _text_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _utc_datetime_or_none(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 def _has_complete_coverage(

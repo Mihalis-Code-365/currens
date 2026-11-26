@@ -47,3 +47,8 @@ class ExchangeRate(Base):
         "target_currency_id", Integer, ForeignKey("currencies.id"), primary_key=True
     )
     rate: Mapped[float] = mapped_column("value", Float, nullable=False)
+    # Provenance (#23), the same nullable columns the service's migration adds.
+    series_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    fetched_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    inverted: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    origin: Mapped[str | None] = mapped_column(String, nullable=True)

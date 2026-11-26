@@ -74,6 +74,7 @@ def store_riksbank_rates(currency_id: int, start_date: str, end_date: str = None
             base_currency_id=currency_id,
             rate_currency_id=SEK_CURRENCY_ID,
             invert_rate=False,
+            series_id=f"SEK{currency_iso_code}PMI",
         )
     except (RateProviderUnavailableError, ValueError) as e:
         print(f"Error fetching data: {e}")
@@ -110,6 +111,7 @@ def store_european_central_bank_rates(
             base_currency_id=base_currency_id,
             rate_currency_id=rate_currency_id,
             invert_rate=False,
+            series_id=f"EXR/D.{rate_currency_iso_code}.{base_currency_iso_code}.SP00.A",
         )
     except (RateProviderUnavailableError, ValueError) as e:
         print(f"Error fetching data: {e}")
@@ -132,6 +134,10 @@ def _store_records(records: list[ExchangeRateRecord]) -> None:
                     base_currency_id=record.base_currency_id,
                     rate_currency_id=record.rate_currency_id,
                     rate=float(record.rate),
+                    series_id=record.series_id,
+                    fetched_at=None if record.fetched_at is None else record.fetched_at.isoformat(),
+                    inverted=None if record.inverted is None else int(record.inverted),
+                    origin=record.origin,
                 )
             )
         session.commit()

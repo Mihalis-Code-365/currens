@@ -7,7 +7,7 @@ from decimal import Decimal
 from currens.collector import core
 from currens.db import session as db_session
 from currens.db.models import Base
-from currens.service import get_rate, has_rate
+from currens.service import get_rate, get_rate_record, has_rate
 
 
 def test_store_riksbank_rates_stores_foreign_to_sek(monkeypatch, tmp_path) -> None:
@@ -53,6 +53,8 @@ def test_store_european_central_bank_rates_stores_eur_to_target(monkeypatch, tmp
         db_session.configure_database()
 
     assert get_rate(date(2025, 4, 14), "EUR", "USD", db_path=currens_db) == Decimal("1.1377")
+    record = get_rate_record(date(2025, 4, 14), "EUR", "USD", db_path=currens_db)
+    assert (record.series_id, record.inverted, record.origin) == ("EXR/D.USD.EUR.SP00.A", False, "provider")
     output = capsys.readouterr().out
     assert "base currency EUR and rate currency USD from 2025-04-14 to 2025-04-14" in output
     assert "{" not in output

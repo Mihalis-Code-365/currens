@@ -137,3 +137,42 @@ def test_get_rate_is_unchanged_by_provenance(monkeypatch, tmp_path, pair) -> Non
     db = tmp_path / "c.db"
 
     assert get_rate(DAY, *pair, db_path=db) == get_rate_record(DAY, *pair, db_path=db).rate
+
+
+def test_recreated_table_regains_the_columns_despite_user_version_2(tmp_path) -> None:
+    # The collector's --recreate drops and recreates the table; user_version stays 2.
+    db = tmp_path / "c.db"
+    get_rate_record(DAY, "SEK", "SEK", db_path=db)
+    with sqlite3.connect(db) as connection:
+        connection.executescript(
+            """
+            DROP TABLE exchange_rates;
+            CREATE TABLE exchange_rates (source TEXT NOT NULL, exchange_rate_date TEXT NOT NULL,
+                base_currency_id INTEGER NOT NULL, target_currency_id INTEGER NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (source, exchange_rate_date, base_currency_id, target_currency_id));
+            INSERT INTO exchange_rates VALUES ('EuropeanCentralBank', '2025-04-16', 1, 3, 11.0);
+            """
+        )
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+
+    assert get_rate(DAY, "EUR", "SEK", db_path=db) == Decimal("11.0")
+
+
+@pytest.mark.parametrize(
+    ("column", "bad_value"),
+    [("fetched_at", "yesterday"), ("fetched_at", "2025-04-16T10:00:00"), ("fetched_at", 1700000000)],
+    ids=["unparseable-time", "naive-time", "numeric-time"],
+)
+def test_unreadable_provenance_reads_as_unknown_and_never_blocks_the_rate(tmp_path, column, bad_value) -> None:
+    db = tmp_path / "c.db"
+    get_rate_record(DAY, "SEK", "SEK", db_path=db)
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            f"INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
+            f" target_currency_id, value, {column}) VALUES ('ECB', '2025-04-16', 1, 3, 11.0, ?)",
+            (bad_value,),
+        )
+
+    assert get_rate(DAY, "EUR", "SEK", db_path=db) == Decimal("11.0")
+    assert getattr(get_rate_record(DAY, "EUR", "SEK", db_path=db), column) is None
