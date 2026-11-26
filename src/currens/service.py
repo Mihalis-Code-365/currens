@@ -40,7 +40,8 @@ class ExchangeRateRecord:
     base_currency_id: int
     rate_currency_id: int
 
-    # Old field names, kept read-only so existing callers of get_rates_for_period keep working.
+    # Old field names, for attribute reads only: constructing a record or calling
+    # dataclasses.replace() needs the new names.
     @property
     def value(self) -> Decimal:
         return self.rate
@@ -587,7 +588,7 @@ def _fetch_from_riksbank(
         foreign_currency_id = base_currency_id
         is_reversed = False
     else:
-        raise ValueError("Riksbank fetch requires SEK as base or target currency.")
+        raise ValueError("Riksbank fetch requires SEK as the base or rate currency.")
 
     rows = get_exchange_rates_from_riksbank(
         foreign_currency_id,
