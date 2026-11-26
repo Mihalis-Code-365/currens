@@ -4,6 +4,7 @@ from currens.errors import (
     UnsupportedCurrencyError,
 )
 from currens.service import (
+    RateProvider,
     ensure_rates,
     ensure_rates_for_dates,
     get_rate,
@@ -16,6 +17,7 @@ from currens.service import (
 
 __all__ = [
     "RateNotPublishedError",
+    "RateProvider",
     "RateProviderUnavailableError",
     "UnsupportedCurrencyError",
     "ensure_rates",

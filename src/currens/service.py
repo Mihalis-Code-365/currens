@@ -291,15 +291,18 @@ def provider_for(base_currency: str, target_currency: str) -> RateProvider:
     It reads no cache and makes no network call. Codes are case-insensitive, as in every
     other public function.
 
-    Raises `UnsupportedCurrencyError` for an unknown code and for a pair with neither EUR nor
-    SEK. Raises a plain `ValueError` for a same-currency pair (EUR/EUR, GBP/GBP): currens
-    supports it, but no provider serves it, since `get_rate` answers 1 without asking one.
+    Raises `UnsupportedCurrencyError` for an unknown code (checked first, so XYZ/XYZ raises
+    it too) and for a pair with neither EUR nor SEK. Raises a plain `ValueError` for a
+    same-currency pair (EUR/EUR, GBP/GBP): currens supports it, but no provider serves it,
+    since `get_rate` answers 1 without asking one. `UnsupportedCurrencyError` is itself a
+    `ValueError`, so a caller telling the two apart catches `UnsupportedCurrencyError` first.
     """
     base_currency_id = _currency_id_from_code(base_currency)
     rate_currency_id = _currency_id_from_code(target_currency)
     if base_currency_id == rate_currency_id:
         raise ValueError(
-            f"{base_currency}->{target_currency} is the same currency: no provider serves it, "
+            f"{_code_from_id(base_currency_id)}->{_code_from_id(rate_currency_id)} is the same "
+            "currency: no provider serves it, "
             "its rate is 1."
         )
     return _require_provider_route(base_currency_id, rate_currency_id)

@@ -78,10 +78,12 @@ def test_a_same_currency_pair_has_no_provider(no_io, base, target) -> None:
 def test_codes_are_case_insensitive_like_the_other_public_functions(no_io) -> None:
     assert provider_for("eur", "usd") == "ECB"
     assert provider_for("Sek", "gbp") == "Riksbank"
-    with pytest.raises(ValueError, match="same currency"):
+    with pytest.raises(ValueError, match="EUR->EUR is the same currency"):
         provider_for("eur", "EUR")
 
 
 def test_it_is_exported() -> None:
     assert "provider_for" in currens.__all__
     assert currens.provider_for is service.provider_for
+    assert "RateProvider" in currens.__all__
+    assert currens.RateProvider is service.RateProvider
