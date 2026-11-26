@@ -15,6 +15,7 @@ from currens import (
     ensure_rates,
     ensure_rates_for_dates,
     get_rate,
+    get_rate_record,
     get_rates_for_period,
     has_rate,
     import_mihalis_rates,
@@ -195,3 +196,91 @@ def test_new_schema_import_skips_unsupported_codes_instead_of_aborting(tmp_path,
     assert import_mihalis_rates(source, currens_db_path=db) == 1
     assert get_rate(DAY, "GBP", "SEK", db_path=db) == Decimal("12.9")
     assert "BGN->EUR: unsupported currency" in caplog.text
+
+
+SATURDAY = date(2025, 4, 19)
+SUNDAY = date(2025, 4, 20)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda db: ensure_rates([("GBP", "NOK")], SATURDAY, SUNDAY, db_path=db),
+        lambda db: get_rates_for_period("GBP", "NOK", SATURDAY, SUNDAY, db_path=db),
+    ],
+    ids=["ensure_rates", "get_rates_for_period"],
+)
+def test_cross_pair_is_refused_on_a_range_without_business_dates(monkeypatch, tmp_path, call) -> None:
+    # #31: no business dates meant the coverage check passed before routing was checked.
+    urls = _record_urls(monkeypatch, b"[]")
+
+    with pytest.raises(UnsupportedCurrencyError, match="GBP->NOK"):
+        call(tmp_path / "c.db")
+    assert urls == []
+
+
+def _cache_with_cross_pair_row(db) -> None:
+    get_rate(DAY, "SEK", "SEK", db_path=db)  # creates the schema
+    with sqlite3.connect(db) as connection:
+        gbp, nok = (
+            connection.execute("SELECT id FROM currencies WHERE iso_code = ?", (code,)).fetchone()[0]
+            for code in ("GBP", "NOK")
+        )
+        # Both directions, so neither a direct nor an inverted lookup can serve the pair.
+        connection.executemany(
+            "INSERT INTO exchange_rates (source, exchange_rate_date, base_currency_id,"
+            " target_currency_id, value) VALUES (?, ?, ?, ?, ?)",
+            [("fixture", DAY.isoformat(), gbp, nok, 13.5), ("fixture", DAY.isoformat(), nok, gbp, 0.074)],
+        )
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda db: get_rate(DAY, "GBP", "NOK", db_path=db),
+        lambda db: get_rate_record(DAY, "GBP", "NOK", db_path=db),
+        lambda db: ensure_rates([("GBP", "NOK")], DAY, DAY, db_path=db),
+        lambda db: ensure_rates_for_dates([("GBP", "NOK")], [DAY], db_path=db),
+        lambda db: get_rates_for_period("GBP", "NOK", DAY, DAY, db_path=db),
+    ],
+    ids=["get_rate", "get_rate_record", "ensure_rates", "ensure_rates_for_dates", "get_rates_for_period"],
+)
+def test_cached_cross_pair_row_is_not_served(monkeypatch, tmp_path, call) -> None:
+    # #31: a GBP->NOK row in the cache (e.g. imported from Mihalis) bypassed the refusal.
+    urls = _record_urls(monkeypatch, b"[]")
+    db = tmp_path / "c.db"
+    _cache_with_cross_pair_row(db)
+
+    with pytest.raises(UnsupportedCurrencyError, match="GBP->NOK"):
+        call(db)
+    assert urls == []
+
+
+def test_has_rate_stays_a_boolean_for_a_cross_pair(tmp_path) -> None:
+    db = tmp_path / "c.db"
+    _cache_with_cross_pair_row(db)
+
+    assert has_rate(DAY, "GBP", "NOK", db_path=db) is False
+
+
+def test_has_rate_is_false_for_the_cross_pair_in_either_direction(tmp_path) -> None:
+    db = tmp_path / "c.db"
+    _cache_with_cross_pair_row(db)
+
+    assert has_rate(DAY, "NOK", "GBP", db_path=db) is False
+
+
+def test_identity_pair_outside_eur_and_sek_is_still_one(monkeypatch, tmp_path) -> None:
+    urls = _record_urls(monkeypatch, b"[]")
+    db = tmp_path / "c.db"
+
+    assert get_rate(DAY, "GBP", "GBP", db_path=db) == Decimal("1")
+    assert get_rate_record(DAY, "GBP", "GBP", db_path=db).source == "identity"
+    assert has_rate(DAY, "GBP", "GBP", db_path=db) is True
+    ensure_rates([("GBP", "GBP")], DAY, DAY, db_path=db)
+    assert urls == []
+
+
+def test_unknown_code_in_a_cross_pair_reports_the_unknown_code(tmp_path) -> None:
+    with pytest.raises(UnsupportedCurrencyError, match="Unsupported currency 'XYZ'"):
+        get_rate(DAY, "XYZ", "NOK", db_path=tmp_path / "c.db")
