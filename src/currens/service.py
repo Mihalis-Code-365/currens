@@ -563,8 +563,15 @@ def _normalize_provider_rows(
     reverse_value: bool,
 ) -> list[ExchangeRateRecord]:
     is_data_envelope = isinstance(rows, dict) and "data" in rows
+    if is_data_envelope:
+        rows = rows["data"]
+    # Anything but a list is a malformed answer; iterating a dict would read as "not published".
+    if not isinstance(rows, list):
+        raise RateProviderUnavailableError(
+            f"Unexpected response from {source}: expected a list of rows, got {rows!r}"
+        )
     records: list[ExchangeRateRecord] = []
-    for item in rows["data"] if is_data_envelope else rows:
+    for item in rows:
         # A bad row must raise, never be skipped: a skipped row reads as "not published".
         try:
             item_date = _coerce_date(item.get("date"))
@@ -579,6 +586,11 @@ def _normalize_provider_rows(
             raise RateProviderUnavailableError(
                 f"Unreadable row from {source}: {item!r} ({exc})"
             ) from exc
+        # Checked before anything is cached: a zero would later divide by zero on the reverse pair.
+        if not rate_value.is_finite() or rate_value <= 0:
+            raise RateProviderUnavailableError(
+                f"Rate from {source} is not a finite positive number: {item!r}"
+            )
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=item_date,

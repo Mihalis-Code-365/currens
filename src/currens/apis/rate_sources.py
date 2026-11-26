@@ -85,18 +85,26 @@ def get_exchange_rates_from_european_central_bank(
         # Navigate to the "TIME_PERIOD" values for the dates
         time_periods = data["structure"]["dimensions"]["observation"][0]["values"]
 
-        # Extract the dates and values
         dates = [time["id"] for time in time_periods]
-        values = [obs[0] for obs in observations.values()]
+        # An observation's key is the index of its period, so pair them by key, never by
+        # position, and refuse a series where the two do not line up one to one.
+        if set(observations) != {str(index) for index in range(len(dates))}:
+            raise RateProviderUnavailableError(
+                f"ECB observations for {key} do not line up with its periods: "
+                f"keys {sorted(observations)} for {len(dates)} periods"
+            )
+        date_value_pairs = []
+        for index, day in enumerate(dates):
+            observation = observations[str(index)]
+            if not isinstance(observation, list) or not observation:
+                raise RateProviderUnavailableError(
+                    f"Unexpected ECB observation for {key} on {day}: {observation!r}"
+                )
+            date_value_pairs.append({"date": day, "value": observation[0]})
     except (KeyError, IndexError, TypeError, AttributeError) as exc:
         raise RateProviderUnavailableError(
             f"Unexpected ECB response shape for {key}: {exc!r}"
         ) from exc
-
-    # Combine dates and values into a list of tuples
-    date_value_pairs = [
-        {"date": date, "value": value} for date, value in zip(dates, values)
-    ]
 
     return date_value_pairs
 
@@ -124,8 +132,15 @@ def _load_json(url: str):
     if status == 204 or not body.strip():
         return None
     try:
-        return json.loads(body)
+        data = json.loads(body)
     except ValueError as exc:
         raise RateProviderUnavailableError(
             f"Rate provider returned an unparseable response for {url}"
         ) from exc
+    # Neither provider sends a JSON null for "no rate" (that is 204 or an empty body), and
+    # returning None here would make it read as one.
+    if data is None:
+        raise RateProviderUnavailableError(
+            f"Rate provider returned a JSON null for {url}"
+        )
+    return data
