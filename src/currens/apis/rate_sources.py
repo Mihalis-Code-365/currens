@@ -94,14 +94,14 @@ def get_exchange_rates_from_european_central_bank(
 
         # Navigate to the "TIME_PERIOD" values for the dates
         time_periods = data["structure"]["dimensions"]["observation"][0]["values"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RateProviderUnavailableError(
-            f"Unexpected ECB response shape for {key}: missing {exc}"
-        ) from exc
 
-    # Extract the dates and values
-    dates = [time["id"] for time in time_periods]
-    values = [obs[0] for obs in observations.values()]
+        # Extract the dates and values
+        dates = [time["id"] for time in time_periods]
+        values = [obs[0] for obs in observations.values()]
+    except (KeyError, IndexError, TypeError, AttributeError) as exc:
+        raise RateProviderUnavailableError(
+            f"Unexpected ECB response shape for {key}: {exc!r}"
+        ) from exc
 
     # Combine dates and values into a list of tuples
     date_value_pairs = [
