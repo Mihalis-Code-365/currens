@@ -114,19 +114,26 @@ def store_rates(
     `Decimal` (`TypeError`); an unknown code or a pair with neither EUR nor SEK
     (`UnsupportedCurrencyError`); a same-currency pair, which currens answers as 1 without a row,
     and a rate that is not finite and positive (`ValueError`). Codes are case-insensitive. An
-    empty `source` or `origin` is a `ValueError` naming it. Returns the number of rows.
+    empty `source` or `origin` is a `ValueError` naming it, a value that is not a string a
+    `TypeError`. Returns the number of rows.
 
     A row for the same date, pair and `source` is replaced in place: its value and `origin` are
     updated, its provenance (series, fetch time, direction) cleared, and it keeps its position.
     A row from another `source` is never replaced, and a lookup reads the oldest row for a date
     and pair, so a rate stored here does not win over one already cached from another source.
+    A lookup serves a pair from its reverse row when it has none in its own direction, so a row
+    whose reverse is already cached for that date (any source), or earlier in the same batch,
+    is refused (`ValueError`): stored, it would be served instead of that rate's reciprocal.
     """
     configure_service_database(currens_db_path)
     for name, value in (("source", source), ("origin", origin)):
+        if not isinstance(value, str):
+            raise TypeError(f"store_rates' {name} must be a string, not {type(value).__name__}.")
         if not value.strip():
             raise ValueError(f"store_rates needs a non-empty {name}.")
     checked = [_checked_rate_row(row) for row in rates]
     with _connect(_CURRENT_DB_PATH) as connection:
+        _refuse_reverse_rows(connection, checked)
         connection.executemany(
             """
             INSERT INTO exchange_rates (
@@ -150,11 +157,36 @@ def store_rates(
     return len(checked)
 
 
+def _refuse_reverse_rows(
+    connection: sqlite3.Connection, checked: list[tuple[date, int, int, Decimal]]
+) -> None:
+    seen: set[tuple[date, int, int]] = set()
+    for when, base_id, rate_id, _rate in checked:
+        label = f"{when.isoformat()} {_code_from_id(base_id)}->{_code_from_id(rate_id)}"
+        reverse = connection.execute(
+            "SELECT source FROM exchange_rates WHERE exchange_rate_date = ?"
+            " AND base_currency_id = ? AND target_currency_id = ? ORDER BY rowid LIMIT 1",
+            (when.isoformat(), rate_id, base_id),
+        ).fetchone()
+        if reverse is not None:
+            raise ValueError(
+                f"{label}: the cache already holds the reverse pair for this date (source"
+                f" {reverse[0]}); it is served as that rate's reciprocal, so this row is refused."
+            )
+        if (when, rate_id, base_id) in seen:
+            raise ValueError(f"{label}: the batch also holds the reverse pair for this date.")
+        seen.add((when, base_id, rate_id))
+
+
 def _checked_rate_row(
     row: tuple[date, str, str, Decimal],
 ) -> tuple[date, int, int, Decimal]:
+    if not isinstance(row, tuple) or len(row) != 4:
+        raise TypeError(f"each rate must be a (date, base, rate, Decimal) tuple, not {row!r}.")
     when, base_code, rate_code, rate = row
     label = f"{when} {str(base_code).upper()}->{str(rate_code).upper()}"
+    if not isinstance(base_code, str) or not isinstance(rate_code, str):
+        raise TypeError(f"{label}: currency codes must be strings.")
     if isinstance(when, datetime) or not isinstance(when, date):
         raise TypeError(f"{label}: the date must be a date, not {type(when).__name__}.")
     if not isinstance(rate, Decimal):

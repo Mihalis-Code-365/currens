@@ -207,3 +207,77 @@ def test_exit_does_not_create_the_previous_file(tmp_path, monkeypatch) -> None:
 def test_both_are_exported() -> None:
     assert "store_rates" in currens.__all__
     assert "using_service_database" in currens.__all__
+
+
+# --- the reverse direction, other inputs, an old cache ------------------------------------------
+
+
+@pytest.mark.parametrize("source", ["ECB", "fixture"])
+def test_a_row_whose_reverse_is_cached_is_refused(tmp_path, source) -> None:
+    # A lookup serves USD->EUR from an EUR->USD row when it has none of its own, so a stored
+    # USD->EUR row would be served instead of 1/1.1.
+    db = tmp_path / "c.db"
+    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="p", currens_db_path=db)
+    with pytest.raises(ValueError, match=r"2024-01-02 USD->EUR: the cache already holds the reverse"):
+        store_rates([(DAY, "USD", "EUR", Decimal("0.5"))], source=source, origin="f", currens_db_path=db)
+
+    assert get_rate(DAY, "USD", "EUR", db_path=db) == Decimal("1") / Decimal("1.1")
+    assert _rows(db) == 1
+
+
+def test_a_batch_holding_both_directions_is_refused(tmp_path) -> None:
+    db = tmp_path / "c.db"
+    rows = [(DAY, "EUR", "USD", Decimal("1.1")), (DAY, "USD", "EUR", Decimal("0.5"))]
+    with pytest.raises(ValueError, match="the batch also holds the reverse"):
+        store_rates(rows, source="f", origin="o", currens_db_path=db)
+    assert _rows(db) == 0
+
+
+def test_the_reverse_on_another_date_is_no_obstacle(tmp_path) -> None:
+    db = tmp_path / "c.db"
+    store_rates([(DAY, "EUR", "USD", Decimal("1.1"))], source="ECB", origin="p", currens_db_path=db)
+    store_rates(
+        [(date(2024, 1, 3), "USD", "EUR", Decimal("0.9"))], source="f", origin="o", currens_db_path=db
+    )
+    assert get_rate(date(2024, 1, 3), "USD", "EUR", db_path=db) == Decimal("0.9")
+
+
+@pytest.mark.parametrize(
+    ("rows", "source", "origin"),
+    [
+        pytest.param([(DAY, "USD", "SEK", Decimal("1"))], None, "o", id="source-none"),
+        pytest.param([(DAY, "USD", "SEK", Decimal("1"))], "f", 3, id="origin-int"),
+        pytest.param([(DAY, None, "SEK", Decimal("1"))], "f", "o", id="code-none"),
+        pytest.param([(DAY, "USD", "SEK")], "f", "o", id="three-tuple"),
+        pytest.param([(DAY, "USD", "SEK", 10.5)], "f", "o", id="float-rate"),
+    ],
+)
+def test_inputs_of_the_wrong_type_are_a_type_error(tmp_path, rows, source, origin) -> None:
+    db = tmp_path / "c.db"
+    with pytest.raises(TypeError):
+        store_rates(rows, source=source, origin=origin, currens_db_path=db)
+    assert _rows(db) == 0
+
+
+def test_an_old_cache_without_provenance_columns_is_upserted_in_place(tmp_path) -> None:
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE currencies (id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL,
+                                     iso_code TEXT NOT NULL UNIQUE);
+            CREATE TABLE exchange_rates (
+                source TEXT NOT NULL, exchange_rate_date TEXT NOT NULL,
+                base_currency_id INTEGER NOT NULL, target_currency_id INTEGER NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (source, exchange_rate_date, base_currency_id, target_currency_id));
+            INSERT INTO exchange_rates VALUES ('A', '2024-01-02', 1, 2, 1.1);
+            INSERT INTO exchange_rates VALUES ('B', '2024-01-02', 1, 2, 1.2);
+            PRAGMA user_version = 1;
+            """
+        )
+    store_rates([(DAY, "EUR", "USD", Decimal("1.3"))], source="A", origin="o", currens_db_path=db)
+
+    assert get_rate(DAY, "EUR", "USD", db_path=db) == Decimal("1.3")
+    assert get_rate_record(DAY, "EUR", "USD", db_path=db).origin == "o"
+    assert _rows(db) == 2
