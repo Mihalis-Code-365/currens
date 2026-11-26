@@ -8,10 +8,12 @@ import logging
 import math
 import sqlite3
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
+    get_swedish_bank_days,
 )
 from currens.errors import (
     RateNotPublishedError,
@@ -33,6 +35,8 @@ EUR_CURRENCY_ID = 1
 USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
 # The only ids Mihalis' old schema (trades.db) shares with currens.
+# How far back a Riksbank bank day without a rate counts as "maybe late", not "final" (#22).
+RIKSBANK_GAP_WINDOW_DAYS = 7
 _LEGACY_CURRENCY_IDS = frozenset({EUR_CURRENCY_ID, USD_CURRENCY_ID, SEK_CURRENCY_ID})
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
@@ -562,6 +566,10 @@ def _fetch_pair_from_provider(
     )
     fetched_dates = {record.exchange_rate_date for record in fetched}
     missing = sorted(expected_dates - fetched_dates)
+    if missing and SEK_CURRENCY_ID in (base_currency_id, rate_currency_id) and (
+        EUR_CURRENCY_ID not in (base_currency_id, rate_currency_id)
+    ):
+        _check_riksbank_gaps(missing, base_currency_id, rate_currency_id)
     if missing:
         missing_labels = ", ".join(value.isoformat() for value in missing[:5])
         raise RateNotPublishedError(
@@ -570,6 +578,49 @@ def _fetch_pair_from_provider(
             f"Missing dates include: {missing_labels}"
         )
     return fetched
+
+
+def _check_riksbank_gaps(missing: list[date], base_currency_id: int, rate_currency_id: int) -> None:
+    """Raise RateProviderUnavailableError if a missing Riksbank date may still get a rate (#22).
+
+    An empty Riksbank answer reads as "not published", which lets a caller walk back a day.
+    That is right for a Swedish holiday, but a recent bank day without a rate may be a late
+    publication or an outage. Only weekdays from yesterday back RIKSBANK_GAP_WINDOW_DAYS are
+    in question, and only for those is the Riksbank calendar asked (one call, that range):
+    - a bank day: RateProviderUnavailableError, the answer is unknown;
+    - a holiday: not published, as before;
+    - calendar unreachable or unreadable: RateProviderUnavailableError, never a guess.
+    Every other date stays "not published" without a calendar call, so a calendar failure
+    cannot change it: today or later (the rate appears in the afternoon), weekends, and
+    older dates, where a gap is final (11 years of history show it is rare, e.g. SEKEURPMI
+    on 2022-02-02).
+    """
+    today = _stockholm_today()
+    in_window = [
+        missing_date
+        for missing_date in missing
+        if missing_date.weekday() < 5
+        and 1 <= (today - missing_date).days <= RIKSBANK_GAP_WINDOW_DAYS
+    ]
+    if not in_window:
+        return
+    days = get_swedish_bank_days(min(in_window).isoformat(), max(in_window).isoformat())
+    pair = f"{_code_from_id(base_currency_id)}->{_code_from_id(rate_currency_id)}"
+    for missing_date in in_window:
+        is_bank_day = days.get(missing_date.isoformat())
+        if is_bank_day is None:
+            raise RateProviderUnavailableError(
+                f"Riksbank calendar has no entry for {missing_date.isoformat()}"
+            )
+        if is_bank_day:
+            raise RateProviderUnavailableError(
+                f"Riksbank returned no {pair} rate for {missing_date.isoformat()}, a Swedish "
+                "bank day: it may be published late, so the rate is unknown, not absent."
+            )
+
+
+def _stockholm_today() -> date:
+    return datetime.now(ZoneInfo("Europe/Stockholm")).date()
 
 
 def _fetch_from_ecb(

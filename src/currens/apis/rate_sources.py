@@ -37,6 +37,29 @@ def get_exchange_rates_from_riksbank(
     return [] if data is None else data
 
 
+def get_swedish_bank_days(start_date: str, end_date: str) -> dict[str, bool]:
+    """Whether each date from start_date to end_date (YYYY-MM-DD) is a Swedish bank day.
+
+    Uses the Riksbank's own calendar (SWEA `CalendarDays`), so a date it skips on purpose
+    can be told apart from a gap (#22).
+    :return: {"YYYY-MM-DD": is_bank_day} for every date in the range
+    :raises RateProviderUnavailableError: if the calendar could not be fetched or read
+    """
+    url = f"https://api.riksbank.se/swea/v1/CalendarDays/{start_date}/{end_date}"
+    data = _load_json(url)
+    try:
+        days = {str(day["calendarDate"])[:10]: day["swedishBankday"] for day in data}
+    except (KeyError, TypeError) as exc:
+        raise RateProviderUnavailableError(
+            f"Unexpected Riksbank calendar response for {start_date}..{end_date}: {exc!r}"
+        ) from exc
+    if not all(isinstance(flag, bool) for flag in days.values()):
+        raise RateProviderUnavailableError(
+            f"Riksbank calendar for {start_date}..{end_date} has a non-boolean swedishBankday"
+        )
+    return days
+
+
 def get_exchange_rates_from_european_central_bank(
     base_currency_id: int,
     rate_currency_id: int,
