@@ -13,6 +13,8 @@ from currens.service import (
     has_rate,
     import_mihalis_rates,
     provider_for,
+    store_rates,
+    using_service_database,
 )
 
 __all__ = [
@@ -28,4 +30,6 @@ __all__ = [
     "has_rate",
     "import_mihalis_rates",
     "provider_for",
+    "store_rates",
+    "using_service_database",
 ]

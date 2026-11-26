@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -7,7 +8,7 @@ from pathlib import Path
 import logging
 import math
 import sqlite3
-from typing import Iterable, Literal
+from typing import Iterable, Iterator, Literal
 from zoneinfo import ZoneInfo
 
 from currens.apis.rate_sources import (
@@ -80,6 +81,96 @@ def configure_service_database(db_path: str | Path | None = None) -> None:
         _CURRENT_DB_PATH = Path(db_path).expanduser().resolve()
     _CURRENT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _ensure_schema(_CURRENT_DB_PATH)
+
+
+@contextmanager
+def using_service_database(db_path: str | Path) -> Iterator[Path]:
+    """Point currens at `db_path` for the block, then point it back (#36).
+
+    Yields the resolved path. On exit, normal or by exception, the previous path is restored
+    by assignment only: the previous file is never created, migrated or touched. Blocks nest.
+    """
+    global _CURRENT_DB_PATH
+    previous = _CURRENT_DB_PATH
+    try:
+        configure_service_database(db_path)
+        yield _CURRENT_DB_PATH
+    finally:
+        _CURRENT_DB_PATH = previous
+
+
+def store_rates(
+    rates: Iterable[tuple[date, str, str, Decimal]],
+    *,
+    source: str,
+    origin: str,
+    currens_db_path: str | Path | None = None,
+) -> int:
+    """Load caller-supplied rates into the cache: `(date, base_code, rate_code, rate)` rows (#36).
+
+    Every row is checked before anything is written, so one bad row writes nothing; the error
+    names its date and pair (`2024-01-02 USD->SEK`). Refused: a date that is not a plain `date`
+    (a `datetime` would be stored as a timestamp no lookup matches) and a rate that is not a
+    `Decimal` (`TypeError`); an unknown code or a pair with neither EUR nor SEK
+    (`UnsupportedCurrencyError`); a same-currency pair, which currens answers as 1 without a row,
+    and a rate that is not finite and positive (`ValueError`). Codes are case-insensitive. An
+    empty `source` or `origin` is a `ValueError` naming it. Returns the number of rows.
+
+    A row for the same date, pair and `source` is replaced in place: its value and `origin` are
+    updated, its provenance (series, fetch time, direction) cleared, and it keeps its position.
+    A row from another `source` is never replaced, and a lookup reads the oldest row for a date
+    and pair, so a rate stored here does not win over one already cached from another source.
+    """
+    configure_service_database(currens_db_path)
+    for name, value in (("source", source), ("origin", origin)):
+        if not value.strip():
+            raise ValueError(f"store_rates needs a non-empty {name}.")
+    checked = [_checked_rate_row(row) for row in rates]
+    with _connect(_CURRENT_DB_PATH) as connection:
+        connection.executemany(
+            """
+            INSERT INTO exchange_rates (
+                source, exchange_rate_date, base_currency_id, target_currency_id, value,
+                series_id, fetched_at, inverted, origin
+            ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+            ON CONFLICT (source, exchange_rate_date, base_currency_id, target_currency_id)
+            DO UPDATE SET
+                value = excluded.value,
+                series_id = NULL,
+                fetched_at = NULL,
+                inverted = NULL,
+                origin = excluded.origin
+            """,
+            [
+                (source, when.isoformat(), base_id, rate_id, float(rate), origin)
+                for when, base_id, rate_id, rate in checked
+            ],
+        )
+        connection.commit()
+    return len(checked)
+
+
+def _checked_rate_row(
+    row: tuple[date, str, str, Decimal],
+) -> tuple[date, int, int, Decimal]:
+    when, base_code, rate_code, rate = row
+    label = f"{when} {str(base_code).upper()}->{str(rate_code).upper()}"
+    if isinstance(when, datetime) or not isinstance(when, date):
+        raise TypeError(f"{label}: the date must be a date, not {type(when).__name__}.")
+    if not isinstance(rate, Decimal):
+        raise TypeError(f"{label}: the rate must be a Decimal, not {type(rate).__name__}.")
+    try:
+        base_id = _currency_id_from_code(base_code)
+        rate_id = _currency_id_from_code(rate_code)
+        if base_id != rate_id:
+            _require_provider_route(base_id, rate_id)
+    except UnsupportedCurrencyError as exc:
+        raise UnsupportedCurrencyError(f"{label}: {exc}") from exc
+    if base_id == rate_id:
+        raise ValueError(f"{label}: a same-currency pair is never stored; its rate is 1.")
+    if not _is_usable_rate(rate):
+        raise ValueError(f"{label}: rate {rate} is not finite and positive.")
+    return when, base_id, rate_id, rate
 
 
 def import_mihalis_rates(
