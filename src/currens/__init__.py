@@ -4,6 +4,7 @@ from currens.errors import (
     UnsupportedCurrencyError,
 )
 from currens.service import (
+    RateProvider,
     ensure_rates,
     ensure_rates_for_dates,
     get_rate,
@@ -11,10 +12,12 @@ from currens.service import (
     get_rates_for_period,
     has_rate,
     import_mihalis_rates,
+    provider_for,
 )
 
 __all__ = [
     "RateNotPublishedError",
+    "RateProvider",
     "RateProviderUnavailableError",
     "UnsupportedCurrencyError",
     "ensure_rates",
@@ -24,4 +27,5 @@ __all__ = [
     "get_rates_for_period",
     "has_rate",
     "import_mihalis_rates",
+    "provider_for",
 ]

@@ -32,7 +32,7 @@ uv run ruff format src/
 
 **Runtime flow:** Mihalis backend → `currens.service` → `apis/rate_sources.py` + local SQLite cache
 
-- `src/currens/service.py` — Primary in-process API: bootstrap import from Mihalis, exact-date lookup, period prefetch, and date-specific prefetch. `get_rate_record` returns the rate with its provenance (`series_id`, `fetched_at` in UTC, `inverted`, `origin`; #23, schema `user_version` 2). Rows cached earlier keep NULLs
+- `src/currens/service.py` — Primary in-process API: bootstrap import from Mihalis, exact-date lookup, period prefetch, and date-specific prefetch. `get_rate_record` returns the rate with its provenance (`series_id`, `fetched_at` in UTC, `inverted`, `origin`; #23, schema `user_version` 2). Rows cached earlier keep NULLs. `provider_for(base, target)` returns `"ECB"` or `"Riksbank"` with no network or cache access (#33); it raises `UnsupportedCurrencyError` for an unknown code or a pair without EUR/SEK, and a plain `ValueError` for a same-currency pair (no provider serves it). It wraps `_provider_route`, the only copy of the routing rule, which `_require_provider_route` and the fetch dispatch also use
 - `src/currens/__main__.py` — CLI entry point; supports `--init`, `--recreate`, and `--import-mihalis-rates`
 - `src/currens/apis/rate_sources.py` — ECB and Riksbank fetchers
 - `src/currens/collector/core.py` — legacy collector behind the CLI: `init_db` / `recreate_db` (seeds the `CURRENCIES` table) and `store_riksbank_rates` / `store_european_central_bank_rates`
