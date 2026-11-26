@@ -11,6 +11,7 @@ from currens.service import (
     get_rates_for_period,
     has_rate,
     import_mihalis_rates,
+    provider_for,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "get_rates_for_period",
     "has_rate",
     "import_mihalis_rates",
+    "provider_for",
 ]

@@ -7,7 +7,7 @@ from pathlib import Path
 import logging
 import math
 import sqlite3
-from typing import Iterable
+from typing import Iterable, Literal
 from zoneinfo import ZoneInfo
 
 from currens.apis.rate_sources import (
@@ -40,6 +40,8 @@ RIKSBANK_GAP_WINDOW_DAYS = 7
 _LEGACY_CURRENCY_IDS = frozenset({EUR_CURRENCY_ID, USD_CURRENCY_ID, SEK_CURRENCY_ID})
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
+
+RateProvider = Literal["ECB", "Riksbank"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +282,27 @@ def has_rate(
     if not _has_provider_route(base_currency_id, rate_currency_id):
         return False
     return _lookup_rate(base_currency_id, rate_currency_id, calculation_date) is not None
+
+
+def provider_for(base_currency: str, target_currency: str) -> RateProvider:
+    """Which provider currens asks for the pair: "ECB" or "Riksbank" (#33).
+
+    The ECB when EUR is on either side (EUR/SEK included), else the Riksbank when SEK is.
+    It reads no cache and makes no network call. Codes are case-insensitive, as in every
+    other public function.
+
+    Raises `UnsupportedCurrencyError` for an unknown code and for a pair with neither EUR nor
+    SEK. Raises a plain `ValueError` for a same-currency pair (EUR/EUR, GBP/GBP): currens
+    supports it, but no provider serves it, since `get_rate` answers 1 without asking one.
+    """
+    base_currency_id = _currency_id_from_code(base_currency)
+    rate_currency_id = _currency_id_from_code(target_currency)
+    if base_currency_id == rate_currency_id:
+        raise ValueError(
+            f"{base_currency}->{target_currency} is the same currency: no provider serves it, "
+            "its rate is 1."
+        )
+    return _require_provider_route(base_currency_id, rate_currency_id)
 
 
 def get_rate_record(
@@ -658,15 +681,15 @@ def _fetch_pair_from_provider(
     end_date: date,
     required_dates: Iterable[date] | None,
 ) -> list[ExchangeRateRecord]:
-    _require_provider_route(base_currency_id, rate_currency_id)
-    if EUR_CURRENCY_ID in (base_currency_id, rate_currency_id):
+    provider = _require_provider_route(base_currency_id, rate_currency_id)
+    if provider == "ECB":
         fetched = _fetch_from_ecb(
             base_currency_id=base_currency_id,
             rate_currency_id=rate_currency_id,
             start_date=start_date,
             end_date=end_date,
         )
-    else:  # SEK is on one side: the route check above holds
+    else:
         fetched = _fetch_from_riksbank(
             base_currency_id=base_currency_id,
             rate_currency_id=rate_currency_id,
@@ -681,9 +704,7 @@ def _fetch_pair_from_provider(
     )
     fetched_dates = {record.exchange_rate_date for record in fetched}
     missing = sorted(expected_dates - fetched_dates)
-    if missing and SEK_CURRENCY_ID in (base_currency_id, rate_currency_id) and (
-        EUR_CURRENCY_ID not in (base_currency_id, rate_currency_id)
-    ):
+    if missing and provider == "Riksbank":
         _check_riksbank_gaps(missing, base_currency_id, rate_currency_id)
     if missing:
         missing_labels = ", ".join(value.isoformat() for value in missing[:5])
@@ -695,25 +716,40 @@ def _fetch_pair_from_provider(
     return fetched
 
 
+def _provider_route(
+    base_currency_id: int, rate_currency_id: int
+) -> RateProvider | None:
+    """The routing rule, the only copy (#33): EUR on either side is the ECB (EUR/SEK too),
+    else SEK on either side is the Riksbank, else None (no provider publishes the pair)."""
+    pair = (base_currency_id, rate_currency_id)
+    if EUR_CURRENCY_ID in pair:
+        return "ECB"
+    if SEK_CURRENCY_ID in pair:
+        return "Riksbank"
+    return None
+
+
 def _has_provider_route(base_currency_id: int, rate_currency_id: int) -> bool:
-    return EUR_CURRENCY_ID in (base_currency_id, rate_currency_id) or (
-        SEK_CURRENCY_ID in (base_currency_id, rate_currency_id)
-    )
+    return _provider_route(base_currency_id, rate_currency_id) is not None
 
 
-def _require_provider_route(base_currency_id: int, rate_currency_id: int) -> None:
+def _require_provider_route(
+    base_currency_id: int, rate_currency_id: int
+) -> RateProvider:
     """Refuse a pair with neither EUR nor SEK, before any cache or coverage check (#24, #31).
 
     No provider publishes such a pair, and a cross rate would be a derived figure, not an
     official one; for tax use that is the caller's choice. Checking first keeps a cached row
     (e.g. imported from Mihalis) or a range without business dates from slipping past.
     """
-    if not _has_provider_route(base_currency_id, rate_currency_id):
+    provider = _provider_route(base_currency_id, rate_currency_id)
+    if provider is None:
         raise UnsupportedCurrencyError(
             f"No provider publishes {_code_from_id(base_currency_id)}->"
             f"{_code_from_id(rate_currency_id)}: one side must be EUR (ECB) or SEK "
             "(Riksbank). Convert through EUR or SEK explicitly."
         )
+    return provider
 
 
 def _check_riksbank_gaps(missing: list[date], base_currency_id: int, rate_currency_id: int) -> None:
