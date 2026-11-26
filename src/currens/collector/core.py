@@ -20,8 +20,12 @@ def init_db():
     session = db_session.SessionLocal()
     try:
         # Adds whatever the table lacks, so a database seeded with fewer currencies catches up.
-        existing_ids = {currency_id for (currency_id,) in session.query(Currency.id)}
-        missing = [row for row in CURRENCIES if row[0] not in existing_ids]
+        existing = session.query(Currency.id, Currency.iso_code).all()
+        existing_ids = {currency_id for currency_id, _code in existing}
+        existing_codes = {code for _id, code in existing}
+        missing = [
+            row for row in CURRENCIES if row[0] not in existing_ids and row[1] not in existing_codes
+        ]
         if missing:
             print("Pre-populating base currencies...")
             session.add_all(

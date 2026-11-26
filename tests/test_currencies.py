@@ -9,9 +9,18 @@ from decimal import Decimal
 
 import pytest
 
-from currens import RateNotPublishedError, UnsupportedCurrencyError, get_rate
+from currens import (
+    RateNotPublishedError,
+    UnsupportedCurrencyError,
+    ensure_rates,
+    ensure_rates_for_dates,
+    get_rate,
+    get_rates_for_period,
+    has_rate,
+    import_mihalis_rates,
+)
 from currens.apis import rate_sources
-from currens.utils.currency import CURRENCIES
+from currens.utils.currency import CURRENCIES, get_currency_iso_code_by_id
 
 DAY = date(2025, 4, 16)
 
@@ -64,9 +73,17 @@ def test_foreign_to_sek_uses_the_riksbank_series_for_that_currency(monkeypatch, 
 
 
 def test_sek_to_foreign_inverts_the_riksbank_quote(monkeypatch, tmp_path) -> None:
-    _record_urls(monkeypatch, b'[{"date":"2025-04-16","value":0.064}]')
+    urls = _record_urls(monkeypatch, b'[{"date":"2025-04-16","value":0.064}]')
 
     assert get_rate(DAY, "SEK", "JPY", db_path=tmp_path / "c.db") == Decimal("1") / Decimal("0.064")
+    assert urls == ["https://api.riksbank.se/swea/v1/Observations/SEKJPYPMI/2025-04-16/2025-04-16"]
+
+
+def test_eur_to_foreign_uses_the_ecb_series_directly(monkeypatch, tmp_path) -> None:
+    urls = _record_urls(monkeypatch, _ecb_body(1.5937))
+
+    assert get_rate(DAY, "EUR", "AUD", db_path=tmp_path / "c.db") == Decimal("1.5937")
+    assert "/EXR/D.AUD.EUR.SP00.A?" in urls[0]
 
 
 def test_foreign_to_eur_uses_the_ecb_series_inverted(monkeypatch, tmp_path) -> None:
@@ -91,9 +108,34 @@ def test_pair_without_eur_or_sek_is_refused_without_a_fetch(monkeypatch, tmp_pat
     assert urls == []
 
 
-def test_unknown_currency_code_is_unsupported(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda db: ensure_rates([("GBP", "NOK")], DAY, DAY, db_path=db),
+        lambda db: ensure_rates_for_dates([("GBP", "NOK")], [DAY], db_path=db),
+        lambda db: get_rates_for_period("GBP", "NOK", DAY, DAY, db_path=db),
+    ],
+    ids=["ensure_rates", "ensure_rates_for_dates", "get_rates_for_period"],
+)
+def test_every_fetching_entry_point_refuses_a_cross_pair(monkeypatch, tmp_path, call) -> None:
+    urls = _record_urls(monkeypatch, b"[]")
+
+    with pytest.raises(UnsupportedCurrencyError):
+        call(tmp_path / "c.db")
+    assert urls == []
+
+
+def test_unknown_currency_code_is_unsupported(monkeypatch, tmp_path) -> None:
+    urls = _record_urls(monkeypatch, b"[]")
+
     with pytest.raises(UnsupportedCurrencyError, match="XYZ"):
         get_rate(DAY, "XYZ", "SEK", db_path=tmp_path / "c.db")
+    assert urls == []
+
+
+def test_unknown_currency_id_is_unsupported() -> None:
+    with pytest.raises(UnsupportedCurrencyError, match="99"):
+        get_currency_iso_code_by_id(99)
 
 
 def test_existing_cache_gains_the_new_currency_rows(tmp_path) -> None:
@@ -114,3 +156,42 @@ def test_existing_cache_gains_the_new_currency_rows(tmp_path) -> None:
     with sqlite3.connect(db) as connection:
         rows = connection.execute("SELECT id, iso_code FROM currencies ORDER BY id").fetchall()
     assert rows == [(currency_id, code) for currency_id, code, _ in CURRENCIES]
+
+
+def _source_db(path, schema: str, rows) -> None:
+    connection = sqlite3.connect(path)
+    connection.execute(schema)
+    connection.executemany("INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)", rows)
+    connection.commit()
+    connection.close()
+
+
+def test_old_schema_import_skips_ids_it_cannot_trust(tmp_path, caplog) -> None:
+    source = tmp_path / "trades.db"
+    _source_db(
+        source,
+        "CREATE TABLE exchange_rates (source TEXT, exchange_rate_date TEXT,"
+        " base_currency_id INT, target_currency_id INT, value REAL)",
+        [("fixture", "2025-04-16", 1, 3, 11.0), ("fixture", "2025-04-16", 4, 3, 1.1)],
+    )
+    db = tmp_path / "c.db"
+
+    assert import_mihalis_rates(source, currens_db_path=db) == 1
+    # Id 4 in a trades.db was that database's own row, not currens' AUD.
+    assert has_rate(DAY, "AUD", "SEK", db_path=db) is False
+    assert "old-schema ids above 3" in caplog.text
+
+
+def test_new_schema_import_skips_unsupported_codes_instead_of_aborting(tmp_path, caplog) -> None:
+    source = tmp_path / "portfolio.db"
+    _source_db(
+        source,
+        "CREATE TABLE exchange_rates (source TEXT, rate_date TEXT,"
+        " base_currency TEXT, target_currency TEXT, rate REAL)",
+        [("fixture", "2025-04-16", "BGN", "EUR", 0.51), ("fixture", "2025-04-16", "GBP", "SEK", 12.9)],
+    )
+    db = tmp_path / "c.db"
+
+    assert import_mihalis_rates(source, currens_db_path=db) == 1
+    assert get_rate(DAY, "GBP", "SEK", db_path=db) == Decimal("12.9")
+    assert "BGN->EUR: unsupported currency" in caplog.text

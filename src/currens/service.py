@@ -32,6 +32,8 @@ DEFAULT_CURRENCIES = tuple((currency_id, name, iso_code) for currency_id, iso_co
 EUR_CURRENCY_ID = 1
 USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
+# The only ids Mihalis' old schema (trades.db) shares with currens.
+_LEGACY_CURRENCY_IDS = frozenset({EUR_CURRENCY_ID, USD_CURRENCY_ID, SEK_CURRENCY_ID})
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
 
@@ -107,12 +109,28 @@ def import_mihalis_rates(
     skipped: list[str] = []
     with _connect(_CURRENT_DB_PATH) as connection:
         for row in rows:
+            # A pair currens cannot name is skipped like a bad rate, not allowed to abort the
+            # whole import. Old-schema ids are trusted only for 1/2/3: they were rows of each
+            # trades.db's own `currencies` table, so a 4 there need not be currens' 4 (AUD).
             if use_text_codes:
-                base_id = _currency_id_from_code(str(row["base_currency"]))
-                rate_id = _currency_id_from_code(str(row["target_currency"]))
+                base_code = str(row["base_currency"])
+                rate_code = str(row["target_currency"])
+                pair_label = f"{base_code}->{rate_code}"
+                try:
+                    base_id = _currency_id_from_code(base_code)
+                    rate_id = _currency_id_from_code(rate_code)
+                except UnsupportedCurrencyError:
+                    skipped.append(f"{row['exchange_rate_date']} {pair_label}: unsupported currency")
+                    continue
             else:
                 base_id = int(row["base_currency_id"])
                 rate_id = int(row["target_currency_id"])
+                if not {base_id, rate_id} <= _LEGACY_CURRENCY_IDS:
+                    skipped.append(
+                        f"{row['exchange_rate_date']} currency ids {base_id}->{rate_id}: "
+                        "old-schema ids above 3 are ambiguous"
+                    )
+                    continue
             # A bad rate is skipped, not stored: the missing date is then fetched from the
             # provider, whereas a stored zero would break every lookup of the reverse pair.
             try:
@@ -149,7 +167,8 @@ def import_mihalis_rates(
     if skipped:
         _LOGGER.warning(
             "Skipped %d exchange-rate rows from %s whose rate is not a finite positive "
-            "number; those dates will be fetched from the provider. First ones: %s",
+            "number or whose currencies are not supported; supported pairs are fetched "
+            "from the provider when needed. First ones: %s",
             len(skipped),
             source_db_path,
             "; ".join(skipped[:5]),
