@@ -19,6 +19,12 @@
 - `get_rate(date, base_currency, target_currency, db_path=None)`
 - `has_rate(date, base_currency, target_currency, db_path=None)`
 - `get_rates_for_period(base_currency, target_currency, start_date, end_date, db_path=None)`
+- `store_rates(rates, source=..., origin=..., currens_db_path=None)`: load your own
+  `(date, base_code, rate_code, Decimal)` rows into the cache, all or nothing. A row for the same
+  date, pair and source is replaced in place; a row cached from another source keeps winning,
+  and a row whose reverse pair is already cached for that date is refused.
+- `using_service_database(db_path)`: a context manager that points currens at a cache for the
+  block and restores the previous path afterwards, without touching that file (a test seam).
 
 Currencies at the API boundary use ISO codes: `EUR`, `USD`, `SEK`.
 
