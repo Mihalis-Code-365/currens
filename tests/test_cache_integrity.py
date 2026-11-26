@@ -258,7 +258,7 @@ def test_rates_for_period_returns_one_usable_rate_per_date(monkeypatch, tmp_path
 
     records = get_rates_for_period("USD", "SEK", DAY, DAY, db_path=currens_db)
 
-    assert [(r.exchange_rate_date, r.value) for r in records] == [(DAY, Decimal("10.0"))]
+    assert [(r.exchange_rate_date, r.rate) for r in records] == [(DAY, Decimal("10.0"))]
 
 
 def test_signaling_nan_in_data_envelope_raises_unavailable() -> None:
@@ -267,8 +267,8 @@ def test_signaling_nan_in_data_envelope_raises_unavailable() -> None:
             rows={"data": [{"date": "2025-04-16", "value": "sNaN"}]},
             source="Riksbank",
             base_currency_id=2,
-            target_currency_id=3,
-            reverse_value=False,
+            rate_currency_id=3,
+            invert_rate=False,
         )
 
 

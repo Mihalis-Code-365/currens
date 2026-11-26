@@ -32,11 +32,23 @@ _CURRENT_DB_PATH = DEFAULT_DB_PATH
 
 @dataclass(frozen=True, slots=True)
 class ExchangeRateRecord:
+    """One rate: how many units of the rate currency one unit of the base currency buys (#1)."""
+
     exchange_rate_date: date
-    value: Decimal
+    rate: Decimal
     source: str
     base_currency_id: int
-    target_currency_id: int
+    rate_currency_id: int
+
+    # Old field names, for attribute reads only: constructing a record or calling
+    # dataclasses.replace() needs the new names.
+    @property
+    def value(self) -> Decimal:
+        return self.rate
+
+    @property
+    def target_currency_id(self) -> int:
+        return self.rate_currency_id
 
 
 def configure_service_database(db_path: str | Path | None = None) -> None:
@@ -91,20 +103,20 @@ def import_mihalis_rates(
         for row in rows:
             if use_text_codes:
                 base_id = _currency_id_from_code(str(row["base_currency"]))
-                target_id = _currency_id_from_code(str(row["target_currency"]))
+                rate_id = _currency_id_from_code(str(row["target_currency"]))
             else:
                 base_id = int(row["base_currency_id"])
-                target_id = int(row["target_currency_id"])
+                rate_id = int(row["target_currency_id"])
             # A bad rate is skipped, not stored: the missing date is then fetched from the
             # provider, whereas a stored zero would break every lookup of the reverse pair.
             try:
-                value = float(row["value"])
+                rate = float(row["value"])
             except (TypeError, ValueError):
-                value = math.nan
-            if not _is_usable_rate(value):
+                rate = math.nan
+            if not _is_usable_rate(rate):
                 skipped.append(
                     f"{row['exchange_rate_date']} {_label_for_id(base_id)}->"
-                    f"{_label_for_id(target_id)} = {row['value']!r}"
+                    f"{_label_for_id(rate_id)} = {row['value']!r}"
                 )
                 continue
             connection.execute(
@@ -121,8 +133,8 @@ def import_mihalis_rates(
                     str(row["source"] or "legacy"),
                     _coerce_date(row["exchange_rate_date"]).isoformat(),
                     base_id,
-                    target_id,
-                    value,
+                    rate_id,
+                    rate,
                 ),
             )
             imported_count += 1
@@ -149,14 +161,14 @@ def ensure_rates(
     configure_service_database(db_path)
     for base_currency, target_currency in pairs:
         base_currency_id = _currency_id_from_code(base_currency)
-        target_currency_id = _currency_id_from_code(target_currency)
-        if base_currency_id == target_currency_id:
+        rate_currency_id = _currency_id_from_code(target_currency)
+        if base_currency_id == rate_currency_id:
             continue
-        if _has_complete_coverage(base_currency_id, target_currency_id, start_date, end_date):
+        if _has_complete_coverage(base_currency_id, rate_currency_id, start_date, end_date):
             continue
         _fetch_and_store_pair(
             base_currency_id=base_currency_id,
-            target_currency_id=target_currency_id,
+            rate_currency_id=rate_currency_id,
             start_date=start_date,
             end_date=end_date,
             required_dates=None,
@@ -176,21 +188,21 @@ def ensure_rates_for_dates(
 
     for base_currency, target_currency in pairs:
         base_currency_id = _currency_id_from_code(base_currency)
-        target_currency_id = _currency_id_from_code(target_currency)
-        if base_currency_id == target_currency_id:
+        rate_currency_id = _currency_id_from_code(target_currency)
+        if base_currency_id == rate_currency_id:
             continue
 
         missing_dates = [
             current_date
             for current_date in normalized_dates
-            if _lookup_rate(base_currency_id, target_currency_id, current_date) is None
+            if _lookup_rate(base_currency_id, rate_currency_id, current_date) is None
         ]
         if not missing_dates:
             continue
 
         _fetch_and_store_pair(
             base_currency_id=base_currency_id,
-            target_currency_id=target_currency_id,
+            rate_currency_id=rate_currency_id,
             start_date=min(missing_dates),
             end_date=max(missing_dates),
             required_dates=missing_dates,
@@ -199,7 +211,7 @@ def ensure_rates_for_dates(
         unresolved_dates = [
             current_date
             for current_date in missing_dates
-            if _lookup_rate(base_currency_id, target_currency_id, current_date) is None
+            if _lookup_rate(base_currency_id, rate_currency_id, current_date) is None
         ]
         if unresolved_dates:
             missing_labels = ", ".join(value.isoformat() for value in unresolved_dates[:5])
@@ -218,10 +230,10 @@ def has_rate(
 ) -> bool:
     configure_service_database(db_path)
     base_currency_id = _currency_id_from_code(base_currency)
-    target_currency_id = _currency_id_from_code(target_currency)
-    if base_currency_id == target_currency_id:
+    rate_currency_id = _currency_id_from_code(target_currency)
+    if base_currency_id == rate_currency_id:
         return True
-    return _lookup_rate(base_currency_id, target_currency_id, calculation_date) is not None
+    return _lookup_rate(base_currency_id, rate_currency_id, calculation_date) is not None
 
 
 def get_rate(
@@ -233,22 +245,22 @@ def get_rate(
 ) -> Decimal:
     configure_service_database(db_path)
     base_currency_id = _currency_id_from_code(base_currency)
-    target_currency_id = _currency_id_from_code(target_currency)
-    if base_currency_id == target_currency_id:
+    rate_currency_id = _currency_id_from_code(target_currency)
+    if base_currency_id == rate_currency_id:
         return Decimal("1")
 
-    rate = _lookup_rate(base_currency_id, target_currency_id, calculation_date)
+    rate = _lookup_rate(base_currency_id, rate_currency_id, calculation_date)
     if rate is not None:
         return rate
 
     _fetch_and_store_pair(
         base_currency_id=base_currency_id,
-        target_currency_id=target_currency_id,
+        rate_currency_id=rate_currency_id,
         start_date=calculation_date,
         end_date=calculation_date,
         required_dates=[calculation_date],
     )
-    rate = _lookup_rate(base_currency_id, target_currency_id, calculation_date)
+    rate = _lookup_rate(base_currency_id, rate_currency_id, calculation_date)
     if rate is None:
         raise RateNotPublishedError(
             f"Exchange rate not found for {base_currency} to {target_currency} on {calculation_date.isoformat()}"
@@ -267,7 +279,7 @@ def get_rates_for_period(
     configure_service_database(db_path)
     ensure_rates([(base_currency, target_currency)], start_date, end_date, db_path=db_path)
     base_currency_id = _currency_id_from_code(base_currency)
-    target_currency_id = _currency_id_from_code(target_currency)
+    rate_currency_id = _currency_id_from_code(target_currency)
 
     with _connect(_CURRENT_DB_PATH) as connection:
         rows = connection.execute(
@@ -281,7 +293,7 @@ def get_rates_for_period(
             """,
             (
                 base_currency_id,
-                target_currency_id,
+                rate_currency_id,
                 start_date.isoformat(),
                 end_date.isoformat(),
             ),
@@ -300,10 +312,10 @@ def get_rates_for_period(
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=row_date,
-                value=Decimal(str(row["value"])),
+                rate=Decimal(str(row["value"])),
                 source=str(row["source"]),
                 base_currency_id=int(row["base_currency_id"]),
-                target_currency_id=int(row["target_currency_id"]),
+                rate_currency_id=int(row["target_currency_id"]),
             )
         )
     return records
@@ -390,12 +402,12 @@ def _currency_id_from_code(currency_code: str) -> int:
     raise ValueError(f"Unsupported currency '{currency_code}'.")
 
 
-def _lookup_rate(base_currency_id: int, target_currency_id: int, calculation_date: date) -> Decimal | None:
+def _lookup_rate(base_currency_id: int, rate_currency_id: int, calculation_date: date) -> Decimal | None:
     with _connect(_CURRENT_DB_PATH) as connection:
-        direct = _stored_rate(connection, base_currency_id, target_currency_id, calculation_date)
+        direct = _stored_rate(connection, base_currency_id, rate_currency_id, calculation_date)
         if direct is not None:
             return direct
-        inverse = _stored_rate(connection, target_currency_id, base_currency_id, calculation_date)
+        inverse = _stored_rate(connection, rate_currency_id, base_currency_id, calculation_date)
         if inverse is not None:
             return Decimal("1") / inverse
     return None
@@ -404,7 +416,7 @@ def _lookup_rate(base_currency_id: int, target_currency_id: int, calculation_dat
 def _stored_rate(
     connection: sqlite3.Connection,
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     calculation_date: date,
 ) -> Decimal | None:
     # A stored row that is not finite and positive (written before #19/#20, or by hand) is
@@ -418,7 +430,7 @@ def _stored_rate(
           AND exchange_rate_date = ?
         ORDER BY rowid
         """,
-        (base_currency_id, target_currency_id, calculation_date.isoformat()),
+        (base_currency_id, rate_currency_id, calculation_date.isoformat()),
     ).fetchall()
     for row in rows:
         if isinstance(row["value"], (int, float)) and _is_usable_rate(row["value"]):
@@ -428,7 +440,7 @@ def _stored_rate(
 
 def _has_complete_coverage(
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     start_date: date,
     end_date: date,
 ) -> bool:
@@ -436,7 +448,7 @@ def _has_complete_coverage(
     if not required_dates:
         return True
     return all(
-        _lookup_rate(base_currency_id, target_currency_id, current_date) is not None
+        _lookup_rate(base_currency_id, rate_currency_id, current_date) is not None
         for current_date in required_dates
     )
 
@@ -454,14 +466,14 @@ def _business_dates_between(start_date: date, end_date: date) -> list[date]:
 def _fetch_and_store_pair(
     *,
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     start_date: date,
     end_date: date,
     required_dates: Iterable[date] | None,
 ) -> None:
     fetched_records = _fetch_pair_from_provider(
         base_currency_id=base_currency_id,
-        target_currency_id=target_currency_id,
+        rate_currency_id=rate_currency_id,
         start_date=start_date,
         end_date=end_date,
         required_dates=required_dates,
@@ -482,8 +494,8 @@ def _fetch_and_store_pair(
                     record.source,
                     record.exchange_rate_date.isoformat(),
                     record.base_currency_id,
-                    record.target_currency_id,
-                    float(record.value),
+                    record.rate_currency_id,
+                    float(record.rate),
                 )
                 for record in fetched_records
             ],
@@ -494,28 +506,28 @@ def _fetch_and_store_pair(
 def _fetch_pair_from_provider(
     *,
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     start_date: date,
     end_date: date,
     required_dates: Iterable[date] | None,
 ) -> list[ExchangeRateRecord]:
-    if EUR_CURRENCY_ID in (base_currency_id, target_currency_id):
+    if EUR_CURRENCY_ID in (base_currency_id, rate_currency_id):
         fetched = _fetch_from_ecb(
             base_currency_id=base_currency_id,
-            target_currency_id=target_currency_id,
+            rate_currency_id=rate_currency_id,
             start_date=start_date,
             end_date=end_date,
         )
-    elif SEK_CURRENCY_ID in (base_currency_id, target_currency_id):
+    elif SEK_CURRENCY_ID in (base_currency_id, rate_currency_id):
         fetched = _fetch_from_riksbank(
             base_currency_id=base_currency_id,
-            target_currency_id=target_currency_id,
+            rate_currency_id=rate_currency_id,
             start_date=start_date,
             end_date=end_date,
         )
     else:
         raise ValueError(
-            f"Unsupported currency pair {base_currency_id}->{target_currency_id}."
+            f"Unsupported currency pair {base_currency_id}->{rate_currency_id}."
         )
 
     expected_dates = (
@@ -529,7 +541,7 @@ def _fetch_pair_from_provider(
         missing_labels = ", ".join(value.isoformat() for value in missing[:5])
         raise RateNotPublishedError(
             "Exchange rate provider did not return exact-date coverage for "
-            f"{_code_from_id(base_currency_id)}->{_code_from_id(target_currency_id)}. "
+            f"{_code_from_id(base_currency_id)}->{_code_from_id(rate_currency_id)}. "
             f"Missing dates include: {missing_labels}"
         )
     return fetched
@@ -538,16 +550,16 @@ def _fetch_pair_from_provider(
 def _fetch_from_ecb(
     *,
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     start_date: date,
     end_date: date,
 ) -> list[ExchangeRateRecord]:
-    is_reversed = target_currency_id == EUR_CURRENCY_ID
-    api_base = EUR_CURRENCY_ID if is_reversed else base_currency_id
-    api_target = base_currency_id if is_reversed else target_currency_id
+    is_reversed = rate_currency_id == EUR_CURRENCY_ID
+    api_base_currency_id = EUR_CURRENCY_ID if is_reversed else base_currency_id
+    api_rate_currency_id = base_currency_id if is_reversed else rate_currency_id
     rows = get_exchange_rates_from_european_central_bank(
-        api_base,
-        api_target,
+        api_base_currency_id,
+        api_rate_currency_id,
         start_date.isoformat(),
         end_date.isoformat(),
     )
@@ -555,31 +567,31 @@ def _fetch_from_ecb(
         rows=rows,
         source="EuropeanCentralBank",
         base_currency_id=base_currency_id,
-        target_currency_id=target_currency_id,
-        reverse_value=is_reversed,
+        rate_currency_id=rate_currency_id,
+        invert_rate=is_reversed,
     )
 
 
 def _fetch_from_riksbank(
     *,
     base_currency_id: int,
-    target_currency_id: int,
+    rate_currency_id: int,
     start_date: date,
     end_date: date,
 ) -> list[ExchangeRateRecord]:
     # Riksbank series (e.g. SEKUSDPMI) quote SEK per 1 unit of the foreign currency,
     # so they are already X->SEK and only SEK->X needs the reciprocal.
     if base_currency_id == SEK_CURRENCY_ID:
-        rate_currency_id = target_currency_id
+        foreign_currency_id = rate_currency_id
         is_reversed = True
-    elif target_currency_id == SEK_CURRENCY_ID:
-        rate_currency_id = base_currency_id
+    elif rate_currency_id == SEK_CURRENCY_ID:
+        foreign_currency_id = base_currency_id
         is_reversed = False
     else:
-        raise ValueError("Riksbank fetch requires SEK as base or target currency.")
+        raise ValueError("Riksbank fetch requires SEK as the base or rate currency.")
 
     rows = get_exchange_rates_from_riksbank(
-        rate_currency_id,
+        foreign_currency_id,
         start_date.isoformat(),
         end_date.isoformat(),
     )
@@ -587,8 +599,8 @@ def _fetch_from_riksbank(
         rows=rows,
         source="Riksbank",
         base_currency_id=base_currency_id,
-        target_currency_id=target_currency_id,
-        reverse_value=is_reversed,
+        rate_currency_id=rate_currency_id,
+        invert_rate=is_reversed,
     )
 
 
@@ -597,8 +609,8 @@ def _normalize_provider_rows(
     rows,
     source: str,
     base_currency_id: int,
-    target_currency_id: int,
-    reverse_value: bool,
+    rate_currency_id: int,
+    invert_rate: bool,
 ) -> list[ExchangeRateRecord]:
     is_data_envelope = isinstance(rows, dict) and "data" in rows
     if is_data_envelope:
@@ -619,33 +631,33 @@ def _normalize_provider_rows(
                 continue
             if not is_data_envelope and math.isnan(float(raw_value)):
                 continue
-            value = Decimal(str(raw_value))
-            rate_value = Decimal("1") / value if reverse_value else value
+            provider_rate = Decimal(str(raw_value))
+            rate = Decimal("1") / provider_rate if invert_rate else provider_rate
         except (ValueError, ArithmeticError, AttributeError, TypeError) as exc:
             raise RateProviderUnavailableError(
                 f"Unreadable row from {source}: {item!r} ({exc})"
             ) from exc
         # Checked before anything is cached: a zero would later divide by zero on the reverse pair.
-        if not _is_usable_rate(rate_value):
+        if not _is_usable_rate(rate):
             raise RateProviderUnavailableError(
                 f"Rate from {source} is not a finite positive number: {item!r}"
             )
         # The cache keeps one row per date, so a second, different rate would silently win.
         if item_date in rate_by_date:
-            if rate_by_date[item_date] != rate_value:
+            if rate_by_date[item_date] != rate:
                 raise RateProviderUnavailableError(
                     f"{source} returned conflicting rates for {item_date.isoformat()}: "
-                    f"{rate_by_date[item_date]} and {rate_value}"
+                    f"{rate_by_date[item_date]} and {rate}"
                 )
             continue
-        rate_by_date[item_date] = rate_value
+        rate_by_date[item_date] = rate
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=item_date,
-                value=rate_value,
+                rate=rate,
                 source=source,
                 base_currency_id=base_currency_id,
-                target_currency_id=target_currency_id,
+                rate_currency_id=rate_currency_id,
             )
         )
     return records

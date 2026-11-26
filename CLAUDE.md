@@ -46,6 +46,8 @@ uv run ruff format src/
 
 **Behavioral notes:**
 
+- Terminology (#1): for a pair base->rate, the *rate* is how many units of the *rate currency* one unit of the *base currency* buys. Internal names use `rate` / `rate_currency_id`; the public keyword `target_currency` and the DB columns `target_currency_id` / `value` keep their old names for compatibility.
+
 - `currens` is used as an in-process Python dependency, not an HTTP API.
 - Mihalis Sweden annual reports use `ensure_rates_for_dates(...)` so provider holidays do not fail unused full-year dates.
 - Exact-date lookup is still required for dates actually used by calculations.

@@ -18,7 +18,7 @@ def get_exchange_rates_from_riksbank(
 ):
     """
     Get exchange rates from the Riksbank
-    :param currency_id: ID of the currency
+    :param rate_currency_id: ID of the foreign currency; the series quotes SEK per 1 unit of it
     :param start_date: Start date for fetching exchange rates
     :return: List of dicts with date and value; empty when nothing is published
     :raises RateProviderUnavailableError: if the Riksbank could not be reached
@@ -47,14 +47,14 @@ def get_exchange_rates_from_european_central_bank(
     """
     Get exchange rates from the European Central Bank using SDMX-JSON
     :param base_currency_id: ID of the base currency (e.g., EUR)
-    :param currency_id: ID of the target currency (e.g., SEK)
+    :param rate_currency_id: ID of the rate currency (e.g., SEK): units of it per 1 base unit
     :param start_date: Start date in YYYY-MM-DD
     :param end_date: Optional end date, defaults to today
     :return: List of dicts with date and exchange rate value; empty when nothing is published
     :raises RateProviderUnavailableError: if the ECB could not be reached
     """
     base_currency: str = get_currency_iso_code_by_id(base_currency_id)
-    currency: str = get_currency_iso_code_by_id(rate_currency_id)
+    rate_currency: str = get_currency_iso_code_by_id(rate_currency_id)
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -62,7 +62,7 @@ def get_exchange_rates_from_european_central_bank(
     entrypoint = "https://data-api.ecb.europa.eu/service/"  # "https://data.ecb.europa.eu/sdmx/2.1/"
     resource = "data"
     flow_ref = "EXR"
-    key = f"D.{currency}.{base_currency}.SP00.A"  # Direction is always: target.base
+    key = f"D.{rate_currency}.{base_currency}.SP00.A"  # The key lists the rate currency first
     request_url = f"{entrypoint}{resource}/{flow_ref}/{key}"
 
     # Parameters

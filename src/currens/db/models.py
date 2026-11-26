@@ -42,7 +42,8 @@ class ExchangeRate(Base):
     base_currency_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("currencies.id"), primary_key=True
     )
-    target_currency_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("currencies.id"), primary_key=True
+    # Python names follow #1 (base / rate currency / rate); the column names stay for the schema.
+    rate_currency_id: Mapped[int] = mapped_column(
+        "target_currency_id", Integer, ForeignKey("currencies.id"), primary_key=True
     )
-    value: Mapped[float] = mapped_column(Float, nullable=False)
+    rate: Mapped[float] = mapped_column("value", Float, nullable=False)

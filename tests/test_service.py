@@ -204,3 +204,18 @@ def test_import_mihalis_rates_drops_invalid_riksbank_rows(tmp_path) -> None:
     assert has_rate(date(2025, 6, 3), "EUR", "USD", db_path=currens_db) is False
     assert has_rate(date(2025, 6, 3), "USD", "SEK", db_path=currens_db) is False
     assert get_rate(date(2025, 6, 4), "USD", "SEK", db_path=currens_db) == Decimal("10")
+
+
+def test_exchange_rate_record_keeps_old_field_names_as_aliases() -> None:
+    from currens.service import ExchangeRateRecord
+
+    record = ExchangeRateRecord(
+        exchange_rate_date=date(2025, 4, 14),
+        rate=Decimal("1.1377"),
+        source="EuropeanCentralBank",
+        base_currency_id=1,
+        rate_currency_id=2,
+    )
+
+    assert record.value == record.rate == Decimal("1.1377")
+    assert record.target_currency_id == record.rate_currency_id == 2
