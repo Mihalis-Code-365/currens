@@ -37,10 +37,24 @@ class _FakeResponse:
         return None
 
 
+def _calendar_body(url: str) -> bytes:
+    """A Riksbank CalendarDays answer: weekdays are bank days, except Easter 2025 (#22)."""
+    start, end = (date.fromisoformat(part) for part in url.rstrip("/").split("/")[-2:])
+    days = []
+    while start <= end:
+        is_bank_day = start.weekday() < 5 and start not in (HOLIDAY, date(2025, 4, 21))
+        days.append({"calendarDate": start.isoformat(), "swedishBankday": is_bank_day})
+        start = start.fromordinal(start.toordinal() + 1)
+    return json.dumps(days).encode()
+
+
 def _respond(monkeypatch, *, status: int = 200, body: bytes = b"", raises: Exception | None = None):
     def fake_urlopen(url, timeout=None):
         if raises is not None:
             raise raises
+        # The rate answers are what these tests vary; the calendar answers truthfully.
+        if "/CalendarDays/" in url:
+            return _FakeResponse(200, _calendar_body(url))
         return _FakeResponse(status, body)
 
     monkeypatch.setattr(rate_sources, "urlopen", fake_urlopen)
