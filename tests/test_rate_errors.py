@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, DivisionByZero, InvalidOperation
 from email.message import Message
 from io import BytesIO
 from urllib.error import HTTPError, URLError
@@ -122,3 +122,67 @@ def test_riksbank_normal_path_returns_rate(monkeypatch, tmp_path, pair, expected
     _respond(monkeypatch, body=_riksbank_body(CONTROL, 10.0))
 
     assert get_rate(CONTROL, *pair, db_path=tmp_path / "currens.db") == expected
+
+
+@pytest.mark.parametrize(
+    ("pair", "payload", "cause"),
+    [
+        (RIKSBANK_PAIR, [{"date": "2025-04-16T00:00:00", "value": 10.0}], ValueError),
+        (RIKSBANK_PAIR, [{"value": 10.0}], ValueError),
+        (RIKSBANK_PAIR, [{"date": "2025-04-16", "value": "n/a"}], ValueError),
+        (RIKSBANK_PAIR, [{"date": "2025-04-16", "value": [10.0]}], TypeError),
+        (RIKSBANK_PAIR, {"data": [{"date": "2025-04-16", "value": "n/a"}]}, InvalidOperation),
+        (("SEK", "USD"), [{"date": "2025-04-16", "value": 0}], DivisionByZero),
+        (RIKSBANK_PAIR, ["not-a-row"], AttributeError),
+    ],
+    ids=[
+        "bad-date",
+        "missing-date",
+        "non-numeric-value",
+        "wrong-value-type",
+        "non-numeric-value-in-data-envelope",
+        "zero-on-reversed-pair",
+        "row-not-a-dict",
+    ],
+)
+def test_malformed_row_raises_unavailable(monkeypatch, tmp_path, pair, payload, cause) -> None:
+    _respond(monkeypatch, body=json.dumps(payload).encode())
+
+    with pytest.raises(RateProviderUnavailableError, match="Riksbank") as excinfo:
+        get_rate(CONTROL, *pair, db_path=tmp_path / "currens.db")
+
+    bad_row = payload["data"][0] if isinstance(payload, dict) else payload[0]
+    assert repr(bad_row) in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, cause)
+
+
+@pytest.mark.parametrize(
+    ("observations", "time_periods"),
+    [
+        ({"0": []}, [{"id": "2025-04-16"}]),
+        ({"0": {}}, [{"id": "2025-04-16"}]),
+        ({"0": None}, [{"id": "2025-04-16"}]),
+        ([[1.25]], [{"id": "2025-04-16"}]),
+        ({"0": [1.25]}, [{}]),
+        ({"0": [1.25]}, ["2025-04-16"]),
+    ],
+    ids=[
+        "empty-observation",
+        "observation-without-value",
+        "null-observation",
+        "observations-not-a-mapping",
+        "period-without-id",
+        "period-not-a-mapping",
+    ],
+)
+def test_ecb_malformed_entry_raises_unavailable(
+    monkeypatch, tmp_path, observations, time_periods
+) -> None:
+    body = {
+        "dataSets": [{"series": {"0:0:0:0:0": {"observations": observations}}}],
+        "structure": {"dimensions": {"observation": [{"values": time_periods}]}},
+    }
+    _respond(monkeypatch, body=json.dumps(body).encode())
+
+    with pytest.raises(RateProviderUnavailableError, match="ECB"):
+        get_rate(CONTROL, *ECB_PAIR, db_path=tmp_path / "currens.db")

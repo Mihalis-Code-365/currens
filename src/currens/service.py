@@ -12,7 +12,7 @@ from currens.apis.rate_sources import (
     get_exchange_rates_from_european_central_bank,
     get_exchange_rates_from_riksbank,
 )
-from currens.errors import RateNotPublishedError
+from currens.errors import RateNotPublishedError, RateProviderUnavailableError
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "db" / "exchange_rates.db"
@@ -562,28 +562,23 @@ def _normalize_provider_rows(
     target_currency_id: int,
     reverse_value: bool,
 ) -> list[ExchangeRateRecord]:
-    normalized_rows: list[tuple[date, Decimal]] = []
-    if isinstance(rows, dict) and "data" in rows:
-        for item in rows["data"]:
-            item_date = _coerce_date(item.get("date"))
-            value = item.get("value")
-            if value is None:
-                continue
-            normalized_rows.append((item_date, Decimal(str(value))))
-    else:
-        for item in rows:
-            item_date = _coerce_date(item.get("date"))
-            value = item.get("value")
-            if value is None:
-                continue
-            numeric = float(value)
-            if math.isnan(numeric):
-                continue
-            normalized_rows.append((item_date, Decimal(str(value))))
-
+    is_data_envelope = isinstance(rows, dict) and "data" in rows
     records: list[ExchangeRateRecord] = []
-    for item_date, value in normalized_rows:
-        rate_value = Decimal("1") / value if reverse_value else value
+    for item in rows["data"] if is_data_envelope else rows:
+        # A bad row must raise, never be skipped: a skipped row reads as "not published".
+        try:
+            item_date = _coerce_date(item.get("date"))
+            raw_value = item.get("value")
+            if raw_value is None:
+                continue
+            if not is_data_envelope and math.isnan(float(raw_value)):
+                continue
+            value = Decimal(str(raw_value))
+            rate_value = Decimal("1") / value if reverse_value else value
+        except (ValueError, ArithmeticError, AttributeError, TypeError) as exc:
+            raise RateProviderUnavailableError(
+                f"Unreadable row from {source}: {item!r} ({exc})"
+            ) from exc
         records.append(
             ExchangeRateRecord(
                 exchange_rate_date=item_date,
