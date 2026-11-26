@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: currens 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-29 17:33+0200\n"
+"POT-Creation-Date: 2026-11-26 08:16+0100\n"
 "PO-Revision-Date: 2026-09-29 17:40+0200\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -18,15 +18,15 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
 
-#: src/currens/collector/core.py:16
+#: src/currens/collector/core.py:15
 msgid "Initializing the database..."
 msgstr "Initializing the database..."
 
-#: src/currens/collector/core.py:18
+#: src/currens/collector/core.py:17
 msgid "Database tables created."
 msgstr "Database tables created."
 
-#: src/currens/collector/core.py:53
+#: src/currens/collector/core.py:52
 #, python-brace-format
 msgid ""
 "Fetching exchange rates from Riksbank for currency {currency_iso_code} "
@@ -35,7 +35,18 @@ msgstr ""
 "Fetching exchange rates from Riksbank for currency {currency_iso_code} "
 "from {start_date} to {end_date}..."
 
-#: src/currens/collector/core.py:60
+#: src/currens/collector/core.py:59 src/currens/collector/core.py:94
 msgid "today"
 msgstr "today"
+
+#: src/currens/collector/core.py:87
+#, python-brace-format
+msgid ""
+"Fetching exchange rates from European Central Bank for base currency "
+"{base_currency_iso_code} and rate currency {rate_currency_iso_code} from "
+"{start_date} to {end_date}..."
+msgstr ""
+"Fetching exchange rates from European Central Bank for base currency "
+"{base_currency_iso_code} and rate currency {rate_currency_iso_code} from "
+"{start_date} to {end_date}..."
 

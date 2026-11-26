@@ -19,6 +19,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.ruff]
+# gettext's install() (utils/multilanguage_support.py) puts `_` into builtins at runtime.
+builtins = ["_"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
