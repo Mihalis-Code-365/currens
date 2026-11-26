@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: currens 0.1.0\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-26 08:16+0100\n"
+"POT-Creation-Date: 2026-11-26 08:58+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,30 +17,94 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
 
-#: src/currens/collector/core.py:15
+#: src/currens/__main__.py:17
+msgid "Database initialized."
+msgstr ""
+
+#: src/currens/__main__.py:20
+msgid "Database recreated."
+msgstr ""
+
+#: src/currens/__main__.py:26
+msgid "--import-mihalis-rates requires a source database path."
+msgstr ""
+
+#: src/currens/__main__.py:29
+#, python-brace-format
+msgid "Imported {count} exchange-rate rows from Mihalis."
+msgstr ""
+
+#: src/currens/collector/core.py:34
 msgid "Initializing the database..."
 msgstr ""
 
-#: src/currens/collector/core.py:17
+#: src/currens/collector/core.py:37
 msgid "Database tables created."
 msgstr ""
 
-#: src/currens/collector/core.py:52
+#: src/currens/collector/core.py:50
+msgid "Pre-populating base currencies..."
+msgstr ""
+
+#: src/currens/collector/core.py:57
+#, python-brace-format
+msgid "Inserted base currencies: {codes}"
+msgstr ""
+
+#: src/currens/collector/core.py:62
+msgid "Base currencies already exist. Skipping pre-population."
+msgstr ""
+
+#: src/currens/collector/core.py:65
+msgid "Database initialization complete."
+msgstr ""
+
+#: src/currens/collector/core.py:72
+msgid "Dropping all tables..."
+msgstr ""
+
+#: src/currens/collector/core.py:74
+msgid "All tables dropped."
+msgstr ""
+
+#: src/currens/collector/core.py:81
 #, python-brace-format
 msgid ""
 "Fetching exchange rates from Riksbank for currency {currency_iso_code} "
 "from {start_date} to {end_date}..."
 msgstr ""
 
-#: src/currens/collector/core.py:59 src/currens/collector/core.py:94
+#: src/currens/collector/core.py:87 src/currens/collector/core.py:127
 msgid "today"
 msgstr ""
 
-#: src/currens/collector/core.py:87
+#: src/currens/collector/core.py:103 src/currens/collector/core.py:144
+#, python-brace-format
+msgid "Error fetching data: {error}"
+msgstr ""
+
+#: src/currens/collector/core.py:108
+#, python-brace-format
+msgid "Successfully stored exchange rates for currency {currency_iso_code}."
+msgstr ""
+
+#: src/currens/collector/core.py:120
 #, python-brace-format
 msgid ""
 "Fetching exchange rates from European Central Bank for base currency "
 "{base_currency_iso_code} and rate currency {rate_currency_iso_code} from "
 "{start_date} to {end_date}..."
+msgstr ""
+
+#: src/currens/collector/core.py:150
+#, python-brace-format
+msgid ""
+"Successfully stored exchange rates for base currency "
+"{base_currency_iso_code} and rate currency {rate_currency_iso_code}."
+msgstr ""
+
+#: src/currens/collector/core.py:160
+#, python-brace-format
+msgid "Fetched {count} records. Storing them in the database..."
 msgstr ""
 

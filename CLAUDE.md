@@ -38,7 +38,7 @@ uv run ruff format src/
 - `src/currens/collector/core.py` — legacy collector behind the CLI: `init_db` / `recreate_db` (seeds the `CURRENCIES` table) and `store_riksbank_rates` / `store_european_central_bank_rates`
 - `src/currens/utils/currency.py` — `CURRENCIES`, the one append-only currency table (ids 1–30; `1=EUR`, `2=USD`, `3=SEK` are fixed for Mihalis' old schema). It lists every currency both the ECB and the Riksbank publish daily. A pair needs EUR (→ ECB) or SEK (→ Riksbank) on one side; any other pair raises `UnsupportedCurrencyError` (no derived cross rates, #24)
 - `src/currens/db/session.py` / `src/currens/db/models.py` — legacy SQLAlchemy support used by older collector code
-- `src/currens/utils/multilanguage_support.py` — gettext-based i18n; `setup_translation(lang_code)` installs `_()` globally; locales in `locales/` (Greek `el`, English `en`)
+- `src/currens/utils/multilanguage_support.py` — gettext-based i18n for CLI/collector messages: modules `from currens.utils.multilanguage_support import _` (English until `setup_translation(lang_code)` switches it; it also still installs the builtin). Locales in `locales/` (Greek `el`, English `en`). Library exception messages stay English on purpose
 
 **Database contract:** `currens` owns its own SQLite cache and canonical `currencies` rows. Historical Mihalis `exchange_rates` can be imported via `import_mihalis_rates`. The importer supports both schema versions:
 - **New schema (portfolio.db v3+):** `base_currency TEXT`, `target_currency TEXT` — ISO codes imported via `_currency_id_from_code`
