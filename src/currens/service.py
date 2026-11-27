@@ -36,10 +36,8 @@ DEFAULT_CURRENCIES = tuple((currency_id, name, iso_code) for currency_id, iso_co
 EUR_CURRENCY_ID = 1
 USD_CURRENCY_ID = 2
 SEK_CURRENCY_ID = 3
-# The only ids Mihalis' old schema (trades.db) shares with currens.
 # How far back a Riksbank bank day without a rate counts as "maybe late", not "final" (#22).
 RIKSBANK_GAP_WINDOW_DAYS = 7
-_LEGACY_CURRENCY_IDS = frozenset({EUR_CURRENCY_ID, USD_CURRENCY_ID, SEK_CURRENCY_ID})
 
 _CURRENT_DB_PATH = DEFAULT_DB_PATH
 
@@ -63,7 +61,7 @@ class ExchangeRateRecord:
     inverted: bool | None = None
     """True if `rate` is the reciprocal of the provider's own quote."""
     origin: str | None = None
-    """`provider` for a fetch, `import_mihalis_rates:<file>` for an imported row."""
+    """`provider` for a fetch, the caller's `origin` for a row loaded with `store_rates`."""
 
     # Old field names, for attribute reads only: constructing a record or calling
     # dataclasses.replace() needs the new names.
@@ -209,119 +207,6 @@ def _checked_rate_row(row: object) -> tuple[date, int, int, Decimal]:
     if not _is_usable_rate(rate):
         raise ValueError(f"{label}: rate {rate} is not finite and positive.")
     return when, base_id, rate_id, rate
-
-
-def import_mihalis_rates(
-    source_db_path: str | Path,
-    *,
-    currens_db_path: str | Path | None = None,
-) -> int:
-    configure_service_database(currens_db_path)
-    imported_count = 0
-    with sqlite3.connect(Path(source_db_path).expanduser().resolve()) as source_connection:
-        source_connection.row_factory = sqlite3.Row
-        col_names = {
-            row[0]
-            for row in source_connection.execute(
-                "SELECT name FROM pragma_table_info('exchange_rates')"
-            ).fetchall()
-        }
-        # Mihalis' v3 schema renamed three things at once: the currency columns became TEXT codes,
-        # `exchange_rate_date` became `rate_date`, and `value` became `rate`. Each is sniffed on
-        # its own rather than inferred from the currency columns -- assuming one rename implied
-        # the others is what made this function unable to read the very schema it was extended
-        # for, since it selected the new currency columns alongside the old date/value ones.
-        use_text_codes = "base_currency" in col_names
-        date_column = "rate_date" if "rate_date" in col_names else "exchange_rate_date"
-        value_column = "rate" if "rate" in col_names else "value"
-        currency_columns = (
-            "base_currency, target_currency" if use_text_codes
-            else "base_currency_id, target_currency_id"
-        )
-        # Aliased back to the legacy names so everything downstream reads one set of keys.
-        rows = source_connection.execute(
-            f"""
-            SELECT source,
-                   {date_column} AS exchange_rate_date,
-                   {currency_columns},
-                   {value_column} AS value
-            FROM exchange_rates
-            ORDER BY {date_column} ASC
-            """
-        ).fetchall()
-
-    skipped: list[str] = []
-    # Series, fetch time and direction are not in Mihalis' table, so they stay NULL (#23).
-    import_origin = f"import_mihalis_rates:{Path(source_db_path).expanduser().resolve()}"
-    with _connect(_CURRENT_DB_PATH) as connection:
-        for row in rows:
-            # A pair currens cannot name is skipped like a bad rate, not allowed to abort the
-            # whole import. Old-schema ids are trusted only for 1/2/3: they were rows of each
-            # trades.db's own `currencies` table, so a 4 there need not be currens' 4 (AUD).
-            if use_text_codes:
-                base_code = str(row["base_currency"])
-                rate_code = str(row["target_currency"])
-                pair_label = f"{base_code}->{rate_code}"
-                try:
-                    base_id = _currency_id_from_code(base_code)
-                    rate_id = _currency_id_from_code(rate_code)
-                except UnsupportedCurrencyError:
-                    skipped.append(f"{row['exchange_rate_date']} {pair_label}: unsupported currency")
-                    continue
-            else:
-                base_id = int(row["base_currency_id"])
-                rate_id = int(row["target_currency_id"])
-                if not {base_id, rate_id} <= _LEGACY_CURRENCY_IDS:
-                    skipped.append(
-                        f"{row['exchange_rate_date']} currency ids {base_id}->{rate_id}: "
-                        "old-schema ids above 3 are ambiguous"
-                    )
-                    continue
-            # A bad rate is skipped, not stored: the missing date is then fetched from the
-            # provider, whereas a stored zero would break every lookup of the reverse pair.
-            try:
-                rate = float(row["value"])
-            except (TypeError, ValueError):
-                rate = math.nan
-            if not _is_usable_rate(rate):
-                skipped.append(
-                    f"{row['exchange_rate_date']} {_label_for_id(base_id)}->"
-                    f"{_label_for_id(rate_id)} = {row['value']!r}"
-                )
-                continue
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO exchange_rates (
-                    source,
-                    exchange_rate_date,
-                    base_currency_id,
-                    target_currency_id,
-                    value,
-                    origin
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(row["source"] or "legacy"),
-                    _coerce_date(row["exchange_rate_date"]).isoformat(),
-                    base_id,
-                    rate_id,
-                    rate,
-                    import_origin,
-                ),
-            )
-            imported_count += 1
-        _delete_invalid_riksbank_rows(connection)
-        connection.commit()
-    if skipped:
-        _LOGGER.warning(
-            "Skipped %d exchange-rate rows from %s whose rate is not a finite positive "
-            "number or whose currencies are not supported; supported pairs are fetched "
-            "from the provider when needed. First ones: %s",
-            len(skipped),
-            source_db_path,
-            "; ".join(skipped[:5]),
-        )
-    return imported_count
 
 
 def ensure_rates(
@@ -614,8 +499,8 @@ def _delete_invalid_riksbank_rows(connection: sqlite3.Connection) -> None:
       been near 1, so USD->SEK below 1 or SEK->USD above 1 is an inverted row.
     - The legacy collector stored Riksbank series without SEK in the pair (as EUR->USD).
 
-    Runs once as a migration and again after every Mihalis import, since an older
-    Mihalis database may carry rows written by the same buggy code.
+    A cache-integrity migration of rows currens itself wrote: it runs once, when a cache
+    older than v1 is opened.
     """
     connection.execute(
         """
@@ -872,7 +757,7 @@ def _require_provider_route(
 
     No provider publishes such a pair, and a cross rate would be a derived figure, not an
     official one; for tax use that is the caller's choice. Checking first keeps a cached row
-    (e.g. imported from Mihalis) or a range without business dates from slipping past.
+    (e.g. loaded with `store_rates`) or a range without business dates from slipping past.
     """
     provider = _provider_route(base_currency_id, rate_currency_id)
     if provider is None:
@@ -1073,14 +958,6 @@ def _coerce_date(value) -> date:
     if value is None:
         raise ValueError("Date value is required.")
     return datetime.strptime(str(value), "%Y-%m-%d").date()
-
-
-def _label_for_id(currency_id: int) -> str:
-    """The ISO code for a log line, or the raw id: an unknown id must not turn a skip into an abort."""
-    try:
-        return _code_from_id(currency_id)
-    except ValueError:
-        return f"currency id {currency_id}"
 
 
 def _code_from_id(currency_id: int) -> str:

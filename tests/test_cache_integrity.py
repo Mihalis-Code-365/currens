@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 from datetime import date
 from decimal import Decimal
@@ -22,7 +21,6 @@ from currens.service import (
     get_rate,
     get_rates_for_period,
     has_rate,
-    import_mihalis_rates,
 )
 
 DAY = date(2025, 4, 16)
@@ -90,15 +88,6 @@ def _seed_cache(db_path: Path, rows: list[tuple[str, str, int, int, float]]) -> 
         )
 
 
-def _portfolio_v3(path: Path, rows: list[tuple[str, str, str, str, float | None]]) -> None:
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            "CREATE TABLE exchange_rates (source TEXT, rate_date TEXT,"
-            " base_currency TEXT, target_currency TEXT, rate REAL)"
-        )
-        connection.executemany("INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)", rows)
-
-
 # --- 1. duplicate dates in a provider answer ---------------------------------------------
 
 
@@ -129,43 +118,18 @@ def test_repeated_identical_row_is_accepted(monkeypatch, tmp_path) -> None:
     assert get_rate(DAY, "USD", "SEK", db_path=tmp_path / "currens.db") == Decimal("10")
 
 
-# --- 2. import_mihalis_rates --------------------------------------------------------------
+# --- 2. dates absent from the cache --------------------------------------------------------
 
 
-def test_import_skips_and_reports_rates_that_are_not_finite_and_positive(
-    monkeypatch, tmp_path, caplog
-) -> None:
-    source_db = tmp_path / "portfolio.db"
+def test_date_absent_from_the_cache_is_fetched_from_the_provider(monkeypatch, tmp_path) -> None:
     currens_db = tmp_path / "currens.db"
-    _portfolio_v3(
-        source_db,
-        [
-            ("Mihalis", "2025-04-16", "USD", "SEK", 10.0),
-            ("Mihalis", "2025-04-17", "USD", "SEK", 0.0),
-            ("Mihalis", "2025-04-16", "EUR", "USD", -1.1),
-            ("Mihalis", "2025-04-16", "EUR", "SEK", float("inf")),
-            ("Mihalis", "2025-04-17", "EUR", "SEK", None),
-        ],
-    )
-
-    with caplog.at_level(logging.WARNING, logger="currens.service"):
-        imported = import_mihalis_rates(source_db, currens_db_path=currens_db)
-
-    assert imported == 1
-    assert "Skipped 4" in caplog.text
-    assert "2025-04-17 USD->SEK" in caplog.text
-    _no_network(monkeypatch)
-    assert get_rate(DAY, "USD", "SEK", db_path=currens_db) == Decimal("10")
-
-
-def test_date_skipped_on_import_is_fetched_from_the_provider(monkeypatch, tmp_path) -> None:
-    source_db = tmp_path / "portfolio.db"
-    currens_db = tmp_path / "currens.db"
-    _portfolio_v3(source_db, [("Mihalis", "2025-04-17", "USD", "SEK", 0.0)])
-    import_mihalis_rates(source_db, currens_db_path=currens_db)
+    _seed_cache(currens_db, [("Riksbank", "2025-04-16", 2, 3, 10.0)])
 
     urls = _respond(monkeypatch, [{"date": "2025-04-17", "value": 10}])
 
+    # The cached date is served without a fetch; only the absent one goes to the provider.
+    assert get_rate(DAY, "USD", "SEK", db_path=currens_db) == Decimal("10.0")
+    assert urls == []
     assert get_rate(NEXT_DAY, "SEK", "USD", db_path=currens_db) == Decimal("0.1")
     assert len(urls) == 1
 
@@ -276,46 +240,6 @@ def test_rate_too_small_to_store_raises_unavailable(monkeypatch, tmp_path) -> No
 
     with pytest.raises(RateProviderUnavailableError):
         get_rate(DAY, "USD", "SEK", db_path=tmp_path / "currens.db")
-
-
-def _trades_db(path: Path, rows: list[tuple[str, str, int, int, object]]) -> None:
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            "CREATE TABLE exchange_rates (source TEXT, exchange_rate_date TEXT,"
-            " base_currency_id INTEGER, target_currency_id INTEGER, value REAL)"
-        )
-        connection.executemany("INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)", rows)
-
-
-def test_bad_row_with_unknown_currency_id_is_skipped_not_fatal(tmp_path) -> None:
-    source_db = tmp_path / "trades.db"
-    _trades_db(
-        source_db,
-        [("Mihalis", "2025-04-16", 4, 3, 0.0), ("Mihalis", "2025-04-16", 2, 3, 10.0)],
-    )
-
-    assert import_mihalis_rates(source_db, currens_db_path=tmp_path / "currens.db") == 1
-
-
-@pytest.mark.parametrize("schema", ["v3", "trades"])
-def test_import_still_accepts_numeric_strings_and_ints(monkeypatch, tmp_path, schema) -> None:
-    source_db = tmp_path / "source.db"
-    currens_db = tmp_path / "currens.db"
-    if schema == "v3":
-        _portfolio_v3(
-            source_db,
-            [("Mihalis", "2025-04-16", "USD", "SEK", "10.5"), ("Mihalis", "2025-04-17", "USD", "SEK", 11)],
-        )
-    else:
-        _trades_db(
-            source_db,
-            [("Mihalis", "2025-04-16", 2, 3, "10.5"), ("Mihalis", "2025-04-17", 2, 3, 11)],
-        )
-
-    assert import_mihalis_rates(source_db, currens_db_path=currens_db) == 2
-    _no_network(monkeypatch)
-    assert get_rate(DAY, "USD", "SEK", db_path=currens_db) == Decimal("10.5")
-    assert get_rate(NEXT_DAY, "USD", "SEK", db_path=currens_db) == Decimal("11.0")
 
 
 def test_collector_stores_a_good_ecb_answer(monkeypatch, collector_db) -> None:

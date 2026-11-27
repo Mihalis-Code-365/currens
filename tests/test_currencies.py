@@ -18,7 +18,6 @@ from currens import (
     get_rate_record,
     get_rates_for_period,
     has_rate,
-    import_mihalis_rates,
 )
 from currens.apis import rate_sources
 from currens.utils.currency import CURRENCIES, get_currency_iso_code_by_id
@@ -159,45 +158,6 @@ def test_existing_cache_gains_the_new_currency_rows(tmp_path) -> None:
     assert rows == [(currency_id, code) for currency_id, code, _ in CURRENCIES]
 
 
-def _source_db(path, schema: str, rows) -> None:
-    connection = sqlite3.connect(path)
-    connection.execute(schema)
-    connection.executemany("INSERT INTO exchange_rates VALUES (?, ?, ?, ?, ?)", rows)
-    connection.commit()
-    connection.close()
-
-
-def test_old_schema_import_skips_ids_it_cannot_trust(tmp_path, caplog) -> None:
-    source = tmp_path / "trades.db"
-    _source_db(
-        source,
-        "CREATE TABLE exchange_rates (source TEXT, exchange_rate_date TEXT,"
-        " base_currency_id INT, target_currency_id INT, value REAL)",
-        [("fixture", "2025-04-16", 1, 3, 11.0), ("fixture", "2025-04-16", 4, 3, 1.1)],
-    )
-    db = tmp_path / "c.db"
-
-    assert import_mihalis_rates(source, currens_db_path=db) == 1
-    # Id 4 in a trades.db was that database's own row, not currens' AUD.
-    assert has_rate(DAY, "AUD", "SEK", db_path=db) is False
-    assert "old-schema ids above 3" in caplog.text
-
-
-def test_new_schema_import_skips_unsupported_codes_instead_of_aborting(tmp_path, caplog) -> None:
-    source = tmp_path / "portfolio.db"
-    _source_db(
-        source,
-        "CREATE TABLE exchange_rates (source TEXT, rate_date TEXT,"
-        " base_currency TEXT, target_currency TEXT, rate REAL)",
-        [("fixture", "2025-04-16", "BGN", "EUR", 0.51), ("fixture", "2025-04-16", "GBP", "SEK", 12.9)],
-    )
-    db = tmp_path / "c.db"
-
-    assert import_mihalis_rates(source, currens_db_path=db) == 1
-    assert get_rate(DAY, "GBP", "SEK", db_path=db) == Decimal("12.9")
-    assert "BGN->EUR: unsupported currency" in caplog.text
-
-
 SATURDAY = date(2025, 4, 19)
 SUNDAY = date(2025, 4, 20)
 
@@ -246,7 +206,7 @@ def _cache_with_cross_pair_row(db) -> None:
     ids=["get_rate", "get_rate_record", "ensure_rates", "ensure_rates_for_dates", "get_rates_for_period"],
 )
 def test_cached_cross_pair_row_is_not_served(monkeypatch, tmp_path, call) -> None:
-    # #31: a GBP->NOK row in the cache (e.g. imported from Mihalis) bypassed the refusal.
+    # #31: a GBP->NOK row in the cache (e.g. written by hand or an older currens) bypassed the refusal.
     urls = _record_urls(monkeypatch, b"[]")
     db = tmp_path / "c.db"
     _cache_with_cross_pair_row(db)
