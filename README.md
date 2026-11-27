@@ -16,8 +16,16 @@
 - `ensure_rates(pairs, start_date, end_date, db_path=None)`
 - `ensure_rates_for_dates(pairs, required_dates, db_path=None)`
 - `get_rate(date, base_currency, target_currency, db_path=None)`
+- `get_rate_record(date, base_currency, target_currency, db_path=None)`: like `get_rate`, but the
+  whole `ExchangeRateRecord`: the rate with its provenance (`series_id`, `fetched_at` in UTC,
+  `inverted`, `origin`). The provenance fields are `None` for rows cached before they were recorded
+  and for a currency to itself. A row loaded with `store_rates` has only `origin` (the caller's).
 - `has_rate(date, base_currency, target_currency, db_path=None)`
 - `get_rates_for_period(base_currency, target_currency, start_date, end_date, db_path=None)`
+- `provider_for(base_currency, target_currency)`: `"ECB"` or `"Riksbank"`, the provider currens asks
+  for the pair, with no cache or network access. Raises `UnsupportedCurrencyError` for an unknown code
+  or a pair without EUR or SEK, and a plain `ValueError` for a same-currency pair.
+  `UnsupportedCurrencyError` is itself a `ValueError`, so catch it first to tell the two apart.
 - `store_rates(rates, source=..., origin=..., currens_db_path=None)`: load your own
   `(date, base_code, rate_code, Decimal)` rows into the cache, all or nothing. A row for the same
   date, pair and source is replaced in place; a row cached from another source keeps winning,
