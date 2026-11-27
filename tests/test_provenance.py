@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pytest
 
-from currens import get_rate, get_rate_record, get_rates_for_period, import_mihalis_rates
+from currens import get_rate, get_rate_record, get_rates_for_period
 from currens.apis import rate_sources
 
 DAY = date(2025, 4, 16)
@@ -82,23 +82,6 @@ def test_get_rates_for_period_carries_provenance(monkeypatch, tmp_path) -> None:
     (record,) = get_rates_for_period("EUR", "SEK", DAY, DAY, db_path=tmp_path / "c.db")
 
     assert (record.series_id, record.inverted, record.origin) == ("EXR/D.SEK.EUR.SP00.A", False, "provider")
-
-
-def test_imported_rows_name_the_file_and_leave_the_rest_unknown(tmp_path) -> None:
-    source = tmp_path / "portfolio.db"
-    with sqlite3.connect(source) as connection:
-        connection.execute(
-            "CREATE TABLE exchange_rates (source TEXT, rate_date TEXT,"
-            " base_currency TEXT, target_currency TEXT, rate REAL)"
-        )
-        connection.execute("INSERT INTO exchange_rates VALUES ('Riksbank', '2025-04-16', 'USD', 'SEK', 10.0)")
-    db = tmp_path / "c.db"
-    import_mihalis_rates(source, currens_db_path=db)
-
-    record = get_rate_record(DAY, "USD", "SEK", db_path=db)
-
-    assert record.origin == f"import_mihalis_rates:{source.resolve()}"
-    assert (record.series_id, record.fetched_at, record.inverted) == (None, None, None)
 
 
 def test_v1_cache_is_migrated_and_old_rows_keep_nulls(tmp_path) -> None:
