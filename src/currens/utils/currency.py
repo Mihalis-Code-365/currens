@@ -1,7 +1,7 @@
 """The currencies currens supports: one table, the single source for ids and ISO codes.
 
 Ids are stored in every cache, so this table is append-only: never renumber or reuse an
-id. 1/2/3 are EUR/USD/SEK, and routing relies on EUR and SEK keeping theirs.
+id. 1/2/3 are EUR/USD/SEK; routing relies on EUR and SEK, and the v1 Riksbank repair on USD.
 
 The list is every currency both providers publish daily, checked live on 2026-11-26: the
 ECB's reference rates against EUR (`EXR/D.<CUR>.EUR.SP00.A`) and the Riksbank's group 130

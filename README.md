@@ -43,8 +43,8 @@ By default, `currens` stores its cache in:
 currens/src/currens/db/exchange_rates.db
 ```
 
-An application points `currens` at its own cache with `currens.service.configure_service_database(path)` (or
-`db_path=` per call).
+An application points `currens` at its own cache with `currens.service.configure_service_database(path)`, or per call
+(`db_path=` on lookups, `currens_db_path=` on `store_rates`).
 
 ## CLI Commands
 

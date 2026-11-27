@@ -35,7 +35,7 @@ uv run ruff format src/
 - `src/currens/__main__.py` — CLI entry point; supports `--init` and `--recreate`
 - `src/currens/apis/rate_sources.py` — ECB and Riksbank fetchers
 - `src/currens/collector/core.py` — legacy collector behind the CLI: `init_db` / `recreate_db` (seeds the `CURRENCIES` table) and `store_riksbank_rates` / `store_european_central_bank_rates`
-- `src/currens/utils/currency.py` — `CURRENCIES`, the one append-only currency table (ids 1–30, stored in every cache, so never renumbered or reused; routing relies on `1=EUR` and `3=SEK`). It lists every currency both the ECB and the Riksbank publish daily. A pair needs EUR (→ ECB) or SEK (→ Riksbank) on one side; any other pair raises `UnsupportedCurrencyError` (no derived cross rates, #24)
+- `src/currens/utils/currency.py` — `CURRENCIES`, the one append-only currency table (ids 1–30, stored in every cache, so never renumbered or reused; routing relies on `1=EUR` and `3=SEK`, the v1 Riksbank repair on `2=USD`). It lists every currency both the ECB and the Riksbank publish daily. A pair needs EUR (→ ECB) or SEK (→ Riksbank) on one side; any other pair raises `UnsupportedCurrencyError` (no derived cross rates, #24)
 - `src/currens/db/session.py` / `src/currens/db/models.py` — legacy SQLAlchemy support used by older collector code
 - `src/currens/utils/multilanguage_support.py` — gettext-based i18n for CLI/collector messages: modules `from currens.utils.multilanguage_support import _` (English until `setup_translation(lang_code)` switches it; it also still installs the builtin). Locales in `locales/` (Greek `el`, English `en`). Library exception messages stay English on purpose
 

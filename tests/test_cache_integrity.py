@@ -127,6 +127,9 @@ def test_date_absent_from_the_cache_is_fetched_from_the_provider(monkeypatch, tm
 
     urls = _respond(monkeypatch, [{"date": "2025-04-17", "value": 10}])
 
+    # The cached date is served without a fetch; only the absent one goes to the provider.
+    assert get_rate(DAY, "USD", "SEK", db_path=currens_db) == Decimal("10.0")
+    assert urls == []
     assert get_rate(NEXT_DAY, "SEK", "USD", db_path=currens_db) == Decimal("0.1")
     assert len(urls) == 1
 
